@@ -3,9 +3,6 @@ contact_links:
   - name: 📚 Documentation
     url: https://github.com/netglass-io/NobleOne-Releases
     about: Check our documentation for setup guides and troubleshooting
-  - name: 💬 Community Discussions
-    url: https://github.com/netglass-io/NobleOne-Releases/discussions
-    about: Ask questions and discuss with the community
   - name: 🔒 Security Issues
     url: mailto:security@noblelift.com
     about: Report security vulnerabilities privately
