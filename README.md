@@ -4,7 +4,7 @@ AI-powered forklift fleet management system with real-time CAN bus integration, 
 
 ## 🚀 Quick Installation
 
-For **Raspberry Pi 4/5** or **Nvidia Jetson Nano** running Ubuntu 22.04 LTS:
+For **Raspberry Pi 4/5** or **Nvidia Jetson Nano**:
 
 ```bash
 # Download and run the installer
@@ -21,7 +21,7 @@ sudo ./install.sh
 ## 📋 System Requirements
 
 - **Hardware**: Raspberry Pi 4/5 (4GB+ RAM) or Nvidia Jetson Nano
-- **OS**: Ubuntu 22.04 LTS (ARM64)
+- **OS**: Raspberry Pi OS (64-bit) or Ubuntu 22.04 LTS (ARM64)
 - **Storage**: 8GB+ available space
 - **Network**: Internet connection for installation
 - **Permissions**: Root/sudo access
@@ -55,7 +55,7 @@ Choose from:
 ## 📚 Documentation
 
 ### Installation & Setup
-- **Prerequisites**: Ubuntu 22.04 LTS on supported hardware
+- **Prerequisites**: Raspberry Pi OS (64-bit) or Ubuntu 22.04 LTS on supported hardware
 - **Network**: Ensure internet connectivity during installation
 - **Permissions**: Script requires sudo/root access
 
