@@ -255,3 +255,10 @@ else
     echo -e "${YELLOW}⚠️  CanBridge may not be running. Check logs:${NC}"
     echo "    sudo journalctl -u $SERVICE_NAME --no-pager -n 20"
 fi
+
+echo ""
+echo -e "${BLUE}📋 Need Help?${NC}"
+echo "  • Report bugs or issues: https://github.com/netglass-io/NobleOne-Releases/issues/new/choose"
+echo "  • View existing issues: https://github.com/netglass-io/NobleOne-Releases/issues"
+echo "  • Installation support: Use the 'Installation Support' template"
+echo ""
