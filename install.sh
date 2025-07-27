@@ -156,7 +156,7 @@ RestartSec=10
 
 # Environment
 Environment=DOTNET_ENVIRONMENT=Production
-Environment=ASPNETCORE_URLS=http://localhost:5001
+Environment=ASPNETCORE_URLS=http://localhost:5000
 
 # Security settings
 NoNewPrivileges=true
@@ -239,7 +239,7 @@ echo ""
 echo -e "${BLUE}🌐 Service Details:${NC}"
 echo "  Installation:     $INSTALL_DIR"
 echo "  Service User:     $SERVICE_USER"
-echo "  Web Interface:    http://localhost:5001"
+echo "  Web Interface:    http://localhost:5000"
 echo ""
 echo -e "${BLUE}🔧 Troubleshooting:${NC}"
 echo "  • Ensure CAN device is connected"
