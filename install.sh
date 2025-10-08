@@ -10,7 +10,18 @@ INSTALL_DIR="/opt/canbridge"
 SERVICE_NAME="canbridge"
 SERVICE_USER="canbridge"
 RELEASE_REPO="netglass-io/NobleOne-Releases"
-DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/latest/download/canbridge-linux-arm64.tar.gz"
+
+# TODO: Before production deployment, add channel selection logic
+# For now, hardcoded to dev channel for POC testing
+CHANNEL="dev"
+if [ "$CHANNEL" = "dev" ]; then
+    # Get latest dev pre-release tag
+    LATEST_TAG=$(curl -s "https://api.github.com/repos/${RELEASE_REPO}/releases" | grep '"tag_name"' | grep 'dev' | head -1 | sed -E 's/.*"v([^"]+)".*/v\1/')
+    DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/download/${LATEST_TAG}/canbridge-linux-arm64.tar.gz"
+else
+    # Production: use /releases/latest/
+    DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/latest/download/canbridge-linux-arm64.tar.gz"
+fi
 
 # Colors for output
 RED='\033[0;31m'
