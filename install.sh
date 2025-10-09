@@ -67,13 +67,14 @@ if ! id "$SERVICE_USER" &>/dev/null; then
     echo "Creating service user: $SERVICE_USER"
     useradd -r -s /bin/false -d $INSTALL_DIR $SERVICE_USER
     # Add to dialout group for CAN device access
-    usermod -a -G dialout $SERVICE_USER
-    echo -e "${GREEN}✅ Created user $SERVICE_USER and added to dialout group${NC}"
+    # Add to i2c group for IMU sensor access
+    usermod -a -G dialout,i2c $SERVICE_USER
+    echo -e "${GREEN}✅ Created user $SERVICE_USER and added to dialout and i2c groups${NC}"
 else
     echo -e "${GREEN}✅ Service user $SERVICE_USER already exists${NC}"
-    # Ensure user is in dialout group
-    usermod -a -G dialout $SERVICE_USER
-    echo -e "${GREEN}✅ Added $SERVICE_USER to dialout group${NC}"
+    # Ensure user is in dialout and i2c groups
+    usermod -a -G dialout,i2c $SERVICE_USER
+    echo -e "${GREEN}✅ Added $SERVICE_USER to dialout and i2c groups${NC}"
 fi
 
 # Create installation directory
@@ -258,7 +259,7 @@ echo "  Web Interface:    http://localhost:5000"
 echo ""
 echo -e "${BLUE}🔧 Troubleshooting:${NC}"
 echo "  • Ensure CAN device is connected"
-echo "  • Check that user '$SERVICE_USER' is in 'dialout' group"
+echo "  • Check that user '$SERVICE_USER' is in 'dialout' and 'i2c' groups"
 echo "  • Verify network connectivity for SignalR broadcasting"
 echo ""
 
