@@ -82,6 +82,13 @@ echo -e "${BLUE}📁 Creating installation directory...${NC}"
 mkdir -p $INSTALL_DIR
 chown $SERVICE_USER:$SERVICE_USER $INSTALL_DIR
 
+# Create data directory for IMU calibration files
+echo -e "${BLUE}📁 Creating data directory for IMU calibration...${NC}"
+mkdir -p /data
+chown $SERVICE_USER:$SERVICE_USER /data
+chmod 755 /data
+echo -e "${GREEN}✅ Data directory created at /data${NC}"
+
 # Download and extract latest release
 echo -e "${BLUE}⬇️  Downloading latest CanBridge release...${NC}"
 cd /tmp
