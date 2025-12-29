@@ -4,7 +4,7 @@ AI-powered forklift fleet management system with real-time CAN bus integration, 
 
 ## 🚀 Quick Installation
 
-For **Raspberry Pi 4/5** or **Nvidia Jetson Nano**:
+For **Nvidia Jetson** (Nano, AGX Orin, Thor):
 
 ```bash
 # Download and run the installer
@@ -20,8 +20,8 @@ sudo ./install.sh
 
 ## 📋 System Requirements
 
-- **Hardware**: Raspberry Pi 4/5 (4GB+ RAM) or Nvidia Jetson Nano
-- **OS**: Raspberry Pi OS (64-bit) or Ubuntu 22.04 LTS (ARM64)
+- **Hardware**: Nvidia Jetson (Nano, AGX Orin, Thor)
+- **OS**: Ubuntu 22.04 LTS (ARM64)
 - **Storage**: 8GB+ available space
 - **Network**: Internet connection for installation
 - **Permissions**: Root/sudo access
@@ -55,7 +55,7 @@ Choose from:
 ## 📚 Documentation
 
 ### Installation & Setup
-- **Prerequisites**: Raspberry Pi OS (64-bit) or Ubuntu 22.04 LTS on supported hardware
+- **Prerequisites**: Ubuntu 22.04 LTS on supported Jetson hardware
 - **Network**: Ensure internet connectivity during installation
 - **Permissions**: Script requires sudo/root access
 
@@ -66,8 +66,8 @@ Choose from:
 - **Port Check**: `netstat -tlnp | grep :5233`
 
 ### Hardware Integration
-- **CAN Interface**: RP2040-based CAN bridge (included)
-- **Connection**: USB connection to CAN transceiver
+- **CAN Interface**: Native SocketCAN via Jetson MTTCAN controller
+- **Connection**: Direct CAN bus connection via CAN transceiver
 - **Vehicle Integration**: Compatible with Curtis motor controllers
 
 ## 🔧 Support
