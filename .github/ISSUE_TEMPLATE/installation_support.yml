@@ -24,12 +24,17 @@ body:
     validations:
       required: true
 
-  - type: input
+  - type: dropdown
     id: hardware
     attributes:
       label: Target Hardware
       description: What hardware are you installing on?
-      placeholder: "e.g., Raspberry Pi 4 8GB, Nvidia Jetson Nano, Custom PC"
+      options:
+        - Personal Computer (Hub UI)
+        - Nvidia Jetson Orin Nano
+        - Nvidia Jetson AGX
+        - Nvidia Jetson Thor
+        - Other/Unknown
     validations:
       required: true
 
@@ -38,7 +43,7 @@ body:
     attributes:
       label: Operating System
       description: What OS version are you using?
-      placeholder: "e.g., Ubuntu 22.04 LTS, Raspberry Pi OS"
+      placeholder: "e.g., Ubuntu 22.04 LTS, JetPack 6.0"
     validations:
       required: true
 
