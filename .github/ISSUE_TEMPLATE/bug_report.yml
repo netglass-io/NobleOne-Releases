@@ -16,7 +16,7 @@ body:
       label: System Component
       description: Which part of the NobleOne system is affected?
       options:
-        - Hardware (RP2040, CAN Bridge, Wiring)
+        - Hardware (CAN Bridge, Wiring, Sensors)
         - Driver Interface (Node - Touch screen UI)
         - Fleet Management (Hub - Cloud platform)
         - Installation/Setup
@@ -33,12 +33,17 @@ body:
     validations:
       required: true
 
-  - type: input
+  - type: dropdown
     id: hardware
     attributes:
       label: Hardware Platform
       description: What hardware are you running on?
-      placeholder: "e.g., Raspberry Pi 4, Nvidia Jetson Nano, Custom setup"
+      options:
+        - Personal Computer (Hub UI)
+        - Nvidia Jetson Orin Nano
+        - Nvidia Jetson AGX
+        - Nvidia Jetson Thor
+        - Other/Unknown
     validations:
       required: true
 
