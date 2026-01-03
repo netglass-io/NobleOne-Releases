@@ -1,8 +1,0 @@
-blank_issues_enabled: false
-contact_links:
-  - name: 📚 Documentation
-    url: https://github.com/netglass-io/NobleOne-Releases
-    about: Check our documentation for setup guides and troubleshooting
-  - name: 🔒 Security Issues
-    url: mailto:security@noblelift.com
-    about: Report security vulnerabilities privately
