@@ -175,7 +175,7 @@ RestartSec=10
 
 # Environment
 Environment=DOTNET_ENVIRONMENT=Production
-Environment=ASPNETCORE_URLS=http://localhost:5000
+Environment=ASPNETCORE_URLS=http://0.0.0.0:5000
 
 # Capabilities for CAN interface configuration (native SocketCAN)
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_RAWIO
