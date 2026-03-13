@@ -333,7 +333,7 @@ else
     ACTIVATION_CODE=$(echo "$ACTIVATION_CODE" | tr '[:lower:]' '[:upper:]' | tr -d ' ')
 
     echo -e "${BLUE}🔗 Activating with Hub...${NC}"
-    ACTIVATE_RESPONSE=$(curl -sf -X POST "$HUB_URL/api/devices/activate" \
+    ACTIVATE_RESPONSE=$(curl -s -X POST "$HUB_URL/api/devices/activate" \
         -H "Content-Type: application/json" \
         -d "{\"nodeInstanceId\": \"$NODE_INSTANCE_ID\", \"activationCode\": \"$ACTIVATION_CODE\"}" 2>/dev/null || echo "")
 
@@ -363,6 +363,8 @@ else
 
             # Join tailnet
             if [ -n "$TS_AUTHKEY" ] && command -v tailscale &>/dev/null; then
+                # Ensure tailscaled is running
+                systemctl start tailscaled 2>/dev/null
                 TS_HOSTNAME=$(hostname -s)
                 TS_ARGS="--authkey=$TS_AUTHKEY --hostname=$TS_HOSTNAME"
                 if [ -n "$TS_LOGIN_SERVER" ]; then
