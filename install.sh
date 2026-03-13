@@ -343,11 +343,11 @@ else
         ACTIVATE_SUCCESS=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("success",False))' 2>/dev/null || echo "False")
 
         if [ "$ACTIVATE_SUCCESS" = "True" ]; then
-            DEVICE_NAME=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("deviceName",""))' 2>/dev/null || echo "")
-            UNIT_ID=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("unitId",""))' 2>/dev/null || echo "")
-            REGISTRY_TOKEN=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("registryToken",""))' 2>/dev/null || echo "")
-            TS_AUTHKEY=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("tailscaleAuthKey",""))' 2>/dev/null || echo "")
-            TS_LOGIN_SERVER=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("tailscaleLoginServer",""))' 2>/dev/null || echo "")
+            DEVICE_NAME=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; v=json.load(sys.stdin).get("deviceName"); print(v if v else "")' 2>/dev/null || echo "")
+            UNIT_ID=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; v=json.load(sys.stdin).get("unitId"); print(v if v else "")' 2>/dev/null || echo "")
+            REGISTRY_TOKEN=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; v=json.load(sys.stdin).get("registryToken"); print(v if v else "")' 2>/dev/null || echo "")
+            TS_AUTHKEY=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; v=json.load(sys.stdin).get("tailscaleAuthKey"); print(v if v else "")' 2>/dev/null || echo "")
+            TS_LOGIN_SERVER=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; v=json.load(sys.stdin).get("tailscaleLoginServer"); print(v if v else "")' 2>/dev/null || echo "")
 
             echo -e "${GREEN}✅ Activated as $DEVICE_NAME (Unit: $UNIT_ID)${NC}"
 
