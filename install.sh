@@ -377,6 +377,9 @@ else
                     sleep 3
                     TS_IP=$(tailscale ip -4 2>/dev/null || echo "unknown")
                     echo -e "${GREEN}✅ Joined tailnet (IP: $TS_IP)${NC}"
+                    # Enable Tailscale SSH server for remote access
+                    tailscale set --ssh --accept-risk=lose-ssh 2>/dev/null
+                    echo -e "${GREEN}✅ Tailscale SSH enabled${NC}"
                 else
                     echo -e "${RED}❌ Failed to join tailnet${NC}"
                 fi
