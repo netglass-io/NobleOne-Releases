@@ -7,16 +7,14 @@ AI-powered forklift fleet management system with real-time CAN bus integration, 
 For **Nvidia Jetson** (Nano, AGX Orin, Thor):
 
 ```bash
-# Download and run the installer
-curl -fsSL https://raw.githubusercontent.com/netglass-io/NobleOne-Releases/main/install.sh  < /dev/null |  sudo bash
+# Preprod (default) — fetches Tailscale config from preprod Hub:
+curl -fsSL https://raw.githubusercontent.com/netglass-io/NobleOne-Releases/main/install.sh | sudo bash
+
+# Production:
+curl -fsSL https://raw.githubusercontent.com/netglass-io/NobleOne-Releases/main/install.sh | sudo bash -s -- --env prod
 ```
 
-**Manual download:**
-```bash
-wget https://raw.githubusercontent.com/netglass-io/NobleOne-Releases/main/install.sh
-chmod +x install.sh
-sudo ./install.sh
-```
+The script fetches Tailscale auth keys from Hub automatically. Configure keys in Hub under Device Activation > Tailscale.
 
 ## 📋 System Requirements
 
@@ -29,13 +27,15 @@ sudo ./install.sh
 ## 🏗️ What Gets Installed
 
 - **CanBridge Service** - CAN bus data acquisition and SignalR server
-- **Node WebApp** - Driver interface (containerized Blazor application)
-- **Docker Environment** - Container runtime and management
+- **Tailscale** - WireGuard mesh VPN for remote SSH access from anywhere
 - **System Services** - Automatic startup and monitoring
+
+Node WebApp container and other services are deployed remotely over Tailscale after initial bootstrap.
 
 ## 🌐 System Access
 
 After installation:
+- **Remote SSH**: `ssh nodemin@<tailscale-ip>` (from any machine on the tailnet)
 - **Driver Interface**: http://your-device-ip:5233
 - **System Status**: http://your-device-ip:5001/status
 

@@ -1,9 +1,45 @@
 #!/bin/bash
-# CanBridge Installation/Update Script
+# NobleOne Device Installation/Update Script
 # For Raspberry Pi 5 / ARM64 Linux systems
-# Automatically detects and handles both initial install and updates
+# Installs CanBridge service and Tailscale remote access
+#
+# Usage:
+#   sudo bash install.sh [--env preprod|prod]
+#
+# Options:
+#   --env preprod   Use preprod Hub (default)
+#   --env prod      Use production Hub
 
 set -e
+
+# --- Hub environments ---
+HUB_PREPROD="https://preprod-hub.netglass.io"
+HUB_PROD="https://prod-hub.netglass.io"
+
+# Parse arguments
+HUB_ENV="preprod"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --env)
+            HUB_ENV="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: sudo bash install.sh [--env preprod|prod]"
+            exit 1
+            ;;
+    esac
+done
+
+case "$HUB_ENV" in
+    preprod) HUB_URL="$HUB_PREPROD" ;;
+    prod)    HUB_URL="$HUB_PROD" ;;
+    *)
+        echo "Unknown environment: $HUB_ENV (use 'preprod' or 'prod')"
+        exit 1
+        ;;
+esac
 
 # Configuration
 INSTALL_DIR="/opt/canbridge"
@@ -245,11 +281,118 @@ systemctl status $SERVICE_NAME --no-pager -l
 cd /
 rm -rf /tmp/linux-arm64 /tmp/canbridge-linux-arm64.tar.gz
 
+# =========================================================================
+# Tailscale — remote access mesh
+# =========================================================================
+echo ""
+echo -e "${BLUE}🔗 Tailscale Setup${NC}"
+echo -e "${BLUE}==================${NC}"
+
+# Install Tailscale binary if not present
+if command -v tailscale &>/dev/null; then
+    TS_STATE=$(tailscale status --json 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("BackendState","unknown"))' 2>/dev/null || echo "unknown")
+    if [ "$TS_STATE" = "Running" ]; then
+        TS_IP=$(tailscale ip -4 2>/dev/null || echo "unknown")
+        echo -e "${GREEN}✅ Tailscale already running (IP: $TS_IP)${NC}"
+    else
+        echo -e "${GREEN}✅ Tailscale installed (not yet connected)${NC}"
+    fi
+else
+    echo -e "${BLUE}⬇️  Installing Tailscale...${NC}"
+    if curl -fsSL https://tailscale.com/install.sh | sh; then
+        echo -e "${GREEN}✅ Tailscale installed${NC}"
+    else
+        echo -e "${RED}❌ Tailscale installation failed${NC}"
+        echo "  Install manually: https://tailscale.com/download/linux"
+    fi
+fi
+
+# =========================================================================
+# Device Activation — register with Hub and join tailnet
+# =========================================================================
+echo ""
+echo -e "${BLUE}🔑 Device Activation${NC}"
+echo -e "${BLUE}====================${NC}"
+echo "  Hub: $HUB_URL ($HUB_ENV)"
+echo ""
+
+# Generate a NodeInstanceId for this device
+NODE_INSTANCE_ID=$(python3 -c 'import uuid; print(uuid.uuid4())' 2>/dev/null || cat /proc/sys/kernel/random/uuid)
+
+echo "  Device Instance ID: $NODE_INSTANCE_ID"
+echo ""
+echo -e "${YELLOW}  Generate an activation code in Hub: $HUB_URL/DeviceActivation${NC}"
+echo ""
+read -rp "  Enter activation code (or 'skip' to skip): " ACTIVATION_CODE
+
+if [ "$ACTIVATION_CODE" = "skip" ] || [ -z "$ACTIVATION_CODE" ]; then
+    echo -e "${YELLOW}⚠️  Skipping activation — device not registered with Hub${NC}"
+    echo "  Tailscale not connected. To activate later, re-run this script."
+else
+    # Normalize code to uppercase
+    ACTIVATION_CODE=$(echo "$ACTIVATION_CODE" | tr '[:lower:]' '[:upper:]' | tr -d ' ')
+
+    echo -e "${BLUE}🔗 Activating with Hub...${NC}"
+    ACTIVATE_RESPONSE=$(curl -sf -X POST "$HUB_URL/api/devices/activate" \
+        -H "Content-Type: application/json" \
+        -d "{\"nodeInstanceId\": \"$NODE_INSTANCE_ID\", \"activationCode\": \"$ACTIVATION_CODE\"}" 2>/dev/null || echo "")
+
+    if [ -z "$ACTIVATE_RESPONSE" ]; then
+        echo -e "${RED}❌ Could not reach Hub at $HUB_URL${NC}"
+    else
+        ACTIVATE_SUCCESS=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("success",False))' 2>/dev/null || echo "False")
+
+        if [ "$ACTIVATE_SUCCESS" = "True" ]; then
+            DEVICE_NAME=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("deviceName",""))' 2>/dev/null || echo "")
+            UNIT_ID=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("unitId",""))' 2>/dev/null || echo "")
+            REGISTRY_TOKEN=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("registryToken",""))' 2>/dev/null || echo "")
+            TS_AUTHKEY=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("tailscaleAuthKey",""))' 2>/dev/null || echo "")
+            TS_LOGIN_SERVER=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("tailscaleLoginServer",""))' 2>/dev/null || echo "")
+
+            echo -e "${GREEN}✅ Activated as $DEVICE_NAME (Unit: $UNIT_ID)${NC}"
+
+            # Docker login with registry token
+            if [ -n "$REGISTRY_TOKEN" ]; then
+                echo -e "${BLUE}🐳 Authenticating with container registry...${NC}"
+                if echo "$REGISTRY_TOKEN" | docker login ghcr.io -u netglass-io --password-stdin 2>/dev/null; then
+                    echo -e "${GREEN}✅ Docker authenticated with GHCR${NC}"
+                else
+                    echo -e "${YELLOW}⚠️  Docker login failed — may need manual auth${NC}"
+                fi
+            fi
+
+            # Join tailnet
+            if [ -n "$TS_AUTHKEY" ] && command -v tailscale &>/dev/null; then
+                TS_HOSTNAME=$(hostname -s)
+                TS_ARGS="--authkey=$TS_AUTHKEY --hostname=$TS_HOSTNAME"
+                if [ -n "$TS_LOGIN_SERVER" ]; then
+                    TS_ARGS="$TS_ARGS --login-server=$TS_LOGIN_SERVER"
+                    echo -e "${BLUE}🔗 Joining tailnet as $TS_HOSTNAME (server: $TS_LOGIN_SERVER)...${NC}"
+                else
+                    echo -e "${BLUE}🔗 Joining tailnet as $TS_HOSTNAME...${NC}"
+                fi
+                if tailscale up $TS_ARGS; then
+                    sleep 3
+                    TS_IP=$(tailscale ip -4 2>/dev/null || echo "unknown")
+                    echo -e "${GREEN}✅ Joined tailnet (IP: $TS_IP)${NC}"
+                else
+                    echo -e "${RED}❌ Failed to join tailnet${NC}"
+                fi
+            elif [ -z "$TS_AUTHKEY" ]; then
+                echo -e "${YELLOW}⚠️  No Tailscale auth key in Hub — configure in Device Activation > Tailscale${NC}"
+            fi
+        else
+            ERROR_MSG=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("errorMessage","Unknown error"))' 2>/dev/null || echo "Unknown error")
+            echo -e "${RED}❌ Activation failed: $ERROR_MSG${NC}"
+        fi
+    fi
+fi
+
 echo ""
 if [ "$OPERATION" = "UPDATE" ]; then
     echo -e "${GREEN}🎉 CanBridge Update Complete!${NC}"
 else
-    echo -e "${GREEN}🎉 CanBridge Installation Complete!${NC}"
+    echo -e "${GREEN}🎉 Installation Complete!${NC}"
 fi
 echo ""
 echo -e "${BLUE}📋 Management Commands:${NC}"
@@ -263,6 +406,12 @@ echo -e "${BLUE}🌐 Service Details:${NC}"
 echo "  Installation:     $INSTALL_DIR"
 echo "  Service User:     $SERVICE_USER"
 echo "  Web Interface:    http://localhost:5000"
+echo ""
+echo -e "${BLUE}🔗 Tailscale:${NC}"
+TS_IP=$(tailscale ip -4 2>/dev/null || echo "not connected")
+echo "  Tailscale IP:     $TS_IP"
+echo "  Status:           sudo tailscale status"
+echo "  SSH via tailnet:  ssh nodemin@$TS_IP"
 echo ""
 echo -e "${BLUE}🔧 Troubleshooting:${NC}"
 echo "  • Ensure CAN device is connected"
