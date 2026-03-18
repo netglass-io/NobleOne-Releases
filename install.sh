@@ -424,6 +424,16 @@ UNIT
         ok "No update nag packages found"
     fi
 
+    # Passwordless sudo for kiosk user (Node container SSHs to host for shutdown/reboot)
+    SUDOERS_FILE="/etc/sudoers.d/$REAL_USER"
+    if [ -f "$SUDOERS_FILE" ]; then
+        ok "Passwordless sudo already configured"
+    else
+        echo "$REAL_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_FILE"
+        chmod 440 "$SUDOERS_FILE"
+        ok "Passwordless sudo enabled for $REAL_USER"
+    fi
+
     # Kiosk autostart
     AUTOSTART_DIR="$REAL_HOME/.config/autostart"
     AUTOSTART_FILE="$AUTOSTART_DIR/node-kiosk.desktop"
