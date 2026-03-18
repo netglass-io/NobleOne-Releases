@@ -123,7 +123,7 @@ if $SKIP_CANBRIDGE; then
     skip_msg "CanBridge installation (--skip-canbridge)"
 else
     # Detect update vs fresh install
-    if systemctl list-unit-files 2>/dev/null | grep -q "^${SERVICE_NAME}.service" && [ -f "${INSTALL_DIR}/DataService" ]; then
+    if [ -f "/etc/systemd/system/${SERVICE_NAME}.service" ] && [ -f "${INSTALL_DIR}/DataService" ]; then
         OPERATION="UPDATE"
         info "Existing installation detected — performing update"
     else
