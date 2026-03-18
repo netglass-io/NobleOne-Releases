@@ -424,6 +424,33 @@ UNIT
         ok "No update nag packages found"
     fi
 
+    # Set eMeet USB speakerphone as default audio sink
+    PULSE_DIR="$REAL_HOME/.config/pulse"
+    if sudo -u "$REAL_USER" pactl list sinks short 2>/dev/null | grep -q "EMEET"; then
+        EMEET_SINK=$(sudo -u "$REAL_USER" pactl list sinks short 2>/dev/null | grep EMEET | awk '{print $2}')
+        mkdir -p "$PULSE_DIR"
+        cat > "$PULSE_DIR/default.pa" << PULSEEOF
+.include /etc/pulse/default.pa
+set-default-sink $EMEET_SINK
+PULSEEOF
+        chown -R "$REAL_USER:$REAL_USER" "$PULSE_DIR"
+        sudo -u "$REAL_USER" pactl set-default-sink "$EMEET_SINK" 2>/dev/null || true
+        ok "eMeet USB audio set as default sink"
+    else
+        info "eMeet not detected — skipping audio config"
+    fi
+
+    # Suppress Jetson overcurrent/power mode desktop notifications
+    NVPMODEL_INDICATOR="/usr/share/nvpmodel_indicator/nvpmodel_indicator.py"
+    if [ -f "$NVPMODEL_INDICATOR" ]; then
+        if grep -q "notify_disable = False" "$NVPMODEL_INDICATOR" 2>/dev/null; then
+            sed -i 's/notify_disable = False/notify_disable = True/g' "$NVPMODEL_INDICATOR"
+            ok "Jetson power mode notifications suppressed"
+        else
+            ok "Jetson power mode notifications already suppressed"
+        fi
+    fi
+
     # Disable Ubuntu on-screen keyboard (Node has its own touch keyboard)
     sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REAL_USER")/bus" \
         gsettings set org.gnome.desktop.a11y.applications screen-keyboard-enabled false 2>/dev/null && \
