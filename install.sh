@@ -330,7 +330,7 @@ else
         cat > "$LAUNCHER_DIR/chromium-gpu" << 'LAUNCHER'
 #!/bin/bash
 export __EGL_VENDOR_LIBRARY_DIRS=/usr/lib/aarch64-linux-gnu/tegra-egl
-exec chromium --enable-gpu --ignore-gpu-blocklist --enable-gpu-rasterization "$@"
+exec chromium --enable-gpu --ignore-gpu-blocklist --enable-gpu-rasterization --password-store=basic "$@"
 LAUNCHER
         chmod +x "$LAUNCHER_DIR/chromium-gpu"
         ok "Created GPU launcher"
@@ -340,7 +340,7 @@ LAUNCHER
         cat > "$LAUNCHER_DIR/chromium-kiosk" << 'LAUNCHER'
 #!/bin/bash
 export __EGL_VENDOR_LIBRARY_DIRS=/usr/lib/aarch64-linux-gnu/tegra-egl
-exec chromium --enable-gpu --ignore-gpu-blocklist --enable-gpu-rasterization --kiosk --disable-infobars --disable-session-crashed-bubble --disable-restore-session-state --disable-web-security --disable-features=VizDisplayCompositor "$@"
+exec chromium --enable-gpu --ignore-gpu-blocklist --enable-gpu-rasterization --kiosk --disable-infobars --disable-session-crashed-bubble --disable-restore-session-state --disable-web-security --disable-features=VizDisplayCompositor --password-store=basic "$@"
 LAUNCHER
         chmod +x "$LAUNCHER_DIR/chromium-kiosk"
         ok "Created kiosk launcher"
@@ -405,19 +405,14 @@ UNIT
         gsettings set org.gnome.desktop.screensaver lock-enabled false 2>/dev/null && \
         ok "Screen lock disabled" || info "Could not set screen lock (will apply after login)"
 
-    # Create GNOME login keyring with empty password (auto-login skips PAM unlock)
+    # Remove GNOME login keyring to prevent unlock prompt on auto-login
     KEYRING_DIR="$REAL_HOME/.local/share/keyrings"
-    mkdir -p "$KEYRING_DIR"
     if [ -f "$KEYRING_DIR/login.keyring" ]; then
         rm -f "$KEYRING_DIR/login.keyring"
+        ok "Login keyring removed (Chromium uses --password-store=basic)"
+    else
+        ok "No login keyring to clean up"
     fi
-    # Initialize keyring with empty password via gnome-keyring-daemon
-    eval "$(printf '\n' | sudo -u "$REAL_USER" gnome-keyring-daemon --replace --unlock --components=secrets 2>/dev/null)" && \
-        ok "Login keyring created with empty password" || \
-        info "Could not create keyring (will prompt once on first login)"
-    # Kill the daemon we just spawned — it was only needed to create the file
-    pkill -u "$REAL_USER" gnome-keyring-daemon 2>/dev/null || true
-    chown -R "$REAL_USER:$REAL_USER" "$KEYRING_DIR"
 
     # Remove update nag packages
     if dpkg -l 2>/dev/null | grep -qE "^ii.*(update-notifier|gnome-software) "; then
