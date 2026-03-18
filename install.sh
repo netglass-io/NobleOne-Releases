@@ -88,7 +88,7 @@ fi
 ARCH=$(uname -m)
 if [ "$ARCH" != "aarch64" ] && [ "$ARCH" != "arm64" ]; then
     echo -e "${YELLOW}⚠️  Warning: Detected architecture $ARCH, but CanBridge is built for ARM64${NC}"
-    read -p "Continue anyway? (y/N): " -n 1 -r
+    read -p "Continue anyway? (y/N): " -n 1 -r < /dev/tty
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         exit 1
@@ -323,7 +323,7 @@ echo "  Device Instance ID: $NODE_INSTANCE_ID"
 echo ""
 echo -e "${YELLOW}  Generate an activation code in Hub: $HUB_URL/DeviceActivation${NC}"
 echo ""
-read -rp "  Enter activation code (or 'skip' to skip): " ACTIVATION_CODE
+read -rp "  Enter activation code (or 'skip' to skip): " ACTIVATION_CODE < /dev/tty
 
 if [ "$ACTIVATION_CODE" = "skip" ] || [ -z "$ACTIVATION_CODE" ]; then
     echo -e "${YELLOW}⚠️  Skipping activation — device not registered with Hub${NC}"
