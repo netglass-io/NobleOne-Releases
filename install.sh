@@ -424,6 +424,18 @@ UNIT
         ok "No update nag packages found"
     fi
 
+    # Disable Ubuntu on-screen keyboard (Node has its own touch keyboard)
+    sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REAL_USER")/bus" \
+        gsettings set org.gnome.desktop.a11y.applications screen-keyboard-enabled false 2>/dev/null && \
+        ok "GNOME on-screen keyboard disabled" || info "Could not set OSK preference (will apply after login)"
+    if dpkg -l 2>/dev/null | grep -qE "^ii.*(ibus|onboard) "; then
+        apt-get remove -y -qq ibus onboard 2>/dev/null
+        apt-get autoremove -y -qq 2>/dev/null
+        ok "Removed IBus and onboard keyboard"
+    else
+        ok "No Ubuntu keyboard packages to remove"
+    fi
+
     # Passwordless sudo for kiosk user (Node container SSHs to host for shutdown/reboot)
     SUDOERS_FILE="/etc/sudoers.d/$REAL_USER"
     if [ -f "$SUDOERS_FILE" ]; then
