@@ -313,7 +313,7 @@ else
         info "Adding XtraDeb PPA and installing Chromium..."
         add-apt-repository -y ppa:xtradeb/apps > /dev/null 2>&1
         apt-get update -qq
-        apt-get install -y -qq chromium > /dev/null
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chromium > /dev/null 2>&1
 
         if command -v chromium &>/dev/null; then
             ok "Chromium installed: $(chromium --version 2>/dev/null || echo 'unknown')"
@@ -382,8 +382,37 @@ ExecStart=/bin/bash -c "echo 1-1 > /sys/bus/usb/drivers/usb/unbind; sleep 1; ech
 WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
 UNIT
         systemctl daemon-reload
-        systemctl enable waveshare-wake
+        systemctl enable waveshare-wake 2>/dev/null
         ok "waveshare-wake service installed"
+    fi
+
+    # Enable auto-login for kiosk user
+    GDM_CONF="/etc/gdm3/custom.conf"
+    if [ -f "$GDM_CONF" ]; then
+        if grep -q "^AutomaticLoginEnable" "$GDM_CONF"; then
+            ok "Auto-login already configured"
+        else
+            sed -i "/^\[daemon\]/a AutomaticLoginEnable=true\nAutomaticLogin=$REAL_USER" "$GDM_CONF"
+            ok "Auto-login enabled for $REAL_USER"
+        fi
+    fi
+
+    # Disable screen blanking and lock
+    sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REAL_USER")/bus" \
+        gsettings set org.gnome.desktop.session idle-delay 0 2>/dev/null && \
+        ok "Screen blanking disabled" || info "Could not set idle-delay (will apply after login)"
+    sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REAL_USER")/bus" \
+        gsettings set org.gnome.desktop.screensaver lock-enabled false 2>/dev/null && \
+        ok "Screen lock disabled" || info "Could not set screen lock (will apply after login)"
+
+    # Remove update nag packages
+    if dpkg -l 2>/dev/null | grep -qE "^ii.*(update-notifier|gnome-software) "; then
+        info "Removing update notifier and GNOME Software..."
+        apt-get remove -y -qq update-notifier gnome-software 2>/dev/null
+        apt-get autoremove -y -qq 2>/dev/null
+        ok "Update notifications removed"
+    else
+        ok "No update nag packages found"
     fi
 
     # Kiosk autostart
