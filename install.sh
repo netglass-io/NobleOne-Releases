@@ -405,6 +405,15 @@ UNIT
         gsettings set org.gnome.desktop.screensaver lock-enabled false 2>/dev/null && \
         ok "Screen lock disabled" || info "Could not set screen lock (will apply after login)"
 
+    # Disable GNOME Keyring prompt (auto-login doesn't unlock it via PAM)
+    KEYRING_DIR="$REAL_HOME/.local/share/keyrings"
+    if [ -f "$KEYRING_DIR/login.keyring" ]; then
+        rm -f "$KEYRING_DIR/login.keyring"
+        ok "Login keyring reset (will recreate unlocked on next login)"
+    else
+        ok "Login keyring already clean"
+    fi
+
     # Remove update nag packages
     if dpkg -l 2>/dev/null | grep -qE "^ii.*(update-notifier|gnome-software) "; then
         info "Removing update notifier and GNOME Software..."
