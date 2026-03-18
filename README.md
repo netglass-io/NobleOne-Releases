@@ -8,10 +8,12 @@ For **Nvidia Jetson** (Nano, AGX Orin, Thor):
 
 ```bash
 # Preprod (default) — fetches Tailscale config from preprod Hub:
-curl -fsSL https://raw.githubusercontent.com/netglass-io/NobleOne-Releases/main/install.sh | sudo bash
+curl -fsSL -H "Accept: application/vnd.github.v3.raw" \
+  "https://api.github.com/repos/netglass-io/NobleOne-Releases/contents/install.sh" | sudo bash
 
 # Production:
-curl -fsSL https://raw.githubusercontent.com/netglass-io/NobleOne-Releases/main/install.sh | sudo bash -s -- --env prod
+curl -fsSL -H "Accept: application/vnd.github.v3.raw" \
+  "https://api.github.com/repos/netglass-io/NobleOne-Releases/contents/install.sh" | sudo bash -s -- --env prod
 ```
 
 The script fetches Tailscale auth keys from Hub automatically. Configure keys in Hub under Device Activation > Tailscale.
