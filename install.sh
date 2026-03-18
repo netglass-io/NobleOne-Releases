@@ -1,32 +1,63 @@
 #!/bin/bash
-# NobleOne Device Installation/Update Script
-# For Raspberry Pi 5 / ARM64 Linux systems
-# Installs CanBridge service and Tailscale remote access
+# NobleOne Device Installation Script
+# Single command to fully provision a Jetson device:
+#   CanBridge, Docker, Chromium kiosk, Tailscale, Hub activation, Node container.
 #
 # Usage:
-#   sudo bash install.sh [--env preprod|prod]
+#   curl -fsSL -H "Accept: application/vnd.github.v3.raw" \
+#     "https://api.github.com/repos/netglass-io/NobleOne-Releases/contents/install.sh" | sudo bash
 #
 # Options:
-#   --env preprod   Use preprod Hub (default)
-#   --env prod      Use production Hub
+#   --env preprod|prod   Hub environment (default: preprod)
+#   --skip-canbridge     Skip CanBridge installation
+#   --skip-chromium      Skip Chromium/kiosk installation
+#   --skip-kiosk         Skip kiosk environment configuration
 
-set -e
+set -euo pipefail
 
-# --- Hub environments ---
+# --- Configuration ---
 HUB_PREPROD="https://preprod-hub.netglass.io"
 HUB_PROD="https://prod-hub.netglass.io"
+INSTALL_DIR="/opt/canbridge"
+SERVICE_NAME="canbridge"
+SERVICE_USER="canbridge"
+RELEASE_REPO="netglass-io/NobleOne-Releases"
+NODE_PORT=5233
 
-# Parse arguments
+# Determine the real user (when run via sudo)
+REAL_USER="${SUDO_USER:-$USER}"
+REAL_HOME=$(eval echo "~$REAL_USER")
+
+# --- Colors & helpers ---
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+step_count=0
+step()     { step_count=$((step_count + 1)); echo ""; echo -e "${BLUE}${BOLD}[$step_count] $1${NC}"; }
+ok()       { echo -e "  ${GREEN}✓${NC} $1"; }
+fail()     { echo -e "  ${RED}✗${NC} $1"; }
+info()     { echo -e "  $1"; }
+skip_msg() { echo -e "  ${YELLOW}⚠ SKIP${NC} $1"; }
+
+# --- Parse arguments ---
 HUB_ENV="preprod"
+SKIP_CANBRIDGE=false
+SKIP_CHROMIUM=false
+SKIP_KIOSK=false
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --env)
-            HUB_ENV="$2"
-            shift 2
-            ;;
+        --env)            HUB_ENV="$2"; shift 2 ;;
+        --skip-canbridge) SKIP_CANBRIDGE=true; shift ;;
+        --skip-chromium)  SKIP_CHROMIUM=true; shift ;;
+        --skip-kiosk)     SKIP_KIOSK=true; shift ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: sudo bash install.sh [--env preprod|prod]"
+            echo "Usage: sudo bash install.sh [--env preprod|prod] [--skip-canbridge] [--skip-chromium] [--skip-kiosk]"
             exit 1
             ;;
     esac
@@ -41,160 +72,119 @@ case "$HUB_ENV" in
         ;;
 esac
 
-# Configuration
-INSTALL_DIR="/opt/canbridge"
-SERVICE_NAME="canbridge"
-SERVICE_USER="canbridge"
-RELEASE_REPO="netglass-io/NobleOne-Releases"
-
-# TODO: Before production deployment, add channel selection logic
-# For now, hardcoded to dev channel for POC testing
-CHANNEL="dev"
-if [ "$CHANNEL" = "dev" ]; then
-    # Get latest dev pre-release tag
-    LATEST_TAG=$(curl -s "https://api.github.com/repos/${RELEASE_REPO}/releases" | grep '"tag_name"' | grep 'dev' | head -1 | sed -E 's/.*"v([^"]+)".*/v\1/')
-    DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/download/${LATEST_TAG}/canbridge-linux-arm64.tar.gz"
-else
-    # Production: use /releases/latest/
-    DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/latest/download/canbridge-linux-arm64.tar.gz"
-fi
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Detect if this is an update or fresh install
-if systemctl list-unit-files | grep -q "^${SERVICE_NAME}.service" && [ -f "${INSTALL_DIR}/DataService" ]; then
-    OPERATION="UPDATE"
-    echo -e "${BLUE}🔄 CanBridge Update Script${NC}"
-    echo -e "${BLUE}==========================${NC}"
-else
-    OPERATION="INSTALL"
-    echo -e "${BLUE}🚀 CanBridge Installation Script${NC}"
-    echo -e "${BLUE}=================================${NC}"
-fi
+# =========================================================================
+# Pre-flight checks
+# =========================================================================
+echo -e "${BOLD}NobleOne Device Setup${NC}"
+echo "Device: $(hostname -s)"
+echo "Hub:    $HUB_URL ($HUB_ENV)"
 echo ""
 
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then 
-    echo -e "${RED}❌ Please run as root (use sudo)${NC}"
+# Root check
+if [ "$EUID" -ne 0 ]; then
+    fail "This script must be run as root (use sudo)"
     exit 1
 fi
 
-# Detect architecture
+# Architecture check
 ARCH=$(uname -m)
 if [ "$ARCH" != "aarch64" ] && [ "$ARCH" != "arm64" ]; then
-    echo -e "${YELLOW}⚠️  Warning: Detected architecture $ARCH, but CanBridge is built for ARM64${NC}"
-    read -p "Continue anyway? (y/N): " -n 1 -r < /dev/tty
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo -e "${YELLOW}Warning: Detected architecture $ARCH — this script is designed for ARM64 Jetson devices${NC}"
+    read -rp "Continue anyway? (y/N): " REPLY < /dev/tty
+    if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
         exit 1
     fi
 fi
+ok "Architecture: $ARCH"
 
-echo -e "${GREEN}✅ Architecture check passed: $ARCH${NC}"
-
-# Create service user
-echo -e "${BLUE}👤 Setting up service user...${NC}"
-if ! id "$SERVICE_USER" &>/dev/null; then
-    echo "Creating service user: $SERVICE_USER"
-    useradd -r -s /bin/false -d $INSTALL_DIR $SERVICE_USER
-    # Add to dialout group for CAN device access
-    # Add to i2c group for IMU sensor access
-    usermod -a -G dialout,i2c $SERVICE_USER
-    echo -e "${GREEN}✅ Created user $SERVICE_USER and added to dialout and i2c groups${NC}"
+# Jetson detection
+if [ -f /proc/device-tree/model ]; then
+    MODEL=$(tr -d '\0' < /proc/device-tree/model)
+    ok "Jetson device: $MODEL"
+elif [ -f /etc/nv_tegra_release ]; then
+    ok "Tegra device confirmed"
 else
-    echo -e "${GREEN}✅ Service user $SERVICE_USER already exists${NC}"
-    # Ensure user is in dialout and i2c groups
-    usermod -a -G dialout,i2c $SERVICE_USER
-    echo -e "${GREEN}✅ Added $SERVICE_USER to dialout and i2c groups${NC}"
+    echo -e "${YELLOW}Warning: Could not confirm Jetson hardware (continuing anyway)${NC}"
 fi
 
-# Create installation directory
-echo -e "${BLUE}📁 Creating installation directory...${NC}"
-mkdir -p $INSTALL_DIR
-chown $SERVICE_USER:$SERVICE_USER $INSTALL_DIR
-
-# Create data subdirectory for IMU calibration files
-echo -e "${BLUE}📁 Creating data directory for IMU calibration...${NC}"
-mkdir -p $INSTALL_DIR/data
-chown $SERVICE_USER:$SERVICE_USER $INSTALL_DIR/data
-chmod 755 $INSTALL_DIR/data
-echo -e "${GREEN}✅ Data directory created at $INSTALL_DIR/data${NC}"
-
-# Download and extract latest release
-echo -e "${BLUE}⬇️  Downloading latest CanBridge release...${NC}"
-cd /tmp
-rm -f canbridge-linux-arm64.tar.gz
-if curl -L -o canbridge-linux-arm64.tar.gz "$DOWNLOAD_URL"; then
-    echo -e "${GREEN}✅ Download successful${NC}"
-else
-    echo -e "${RED}❌ Failed to download from $DOWNLOAD_URL${NC}"
-    echo "Please check your internet connection and that the release exists."
+# Internet check
+if ! curl -s --head --connect-timeout 5 https://github.com > /dev/null 2>&1; then
+    fail "No internet connectivity — cannot reach github.com"
     exit 1
 fi
+ok "Internet connectivity confirmed"
 
-# Extract release
-echo -e "${BLUE}📦 Extracting release...${NC}"
-tar -xzf canbridge-linux-arm64.tar.gz
-if [ ! -f "linux-arm64/DataService" ]; then
-    echo -e "${RED}❌ DataService binary not found in release${NC}"
-    exit 1
-fi
+# =========================================================================
+# Step 1: Install CanBridge
+# =========================================================================
+step "Install CanBridge"
 
-# Handle update vs fresh install
-if [ "$OPERATION" = "UPDATE" ]; then
-    echo -e "${BLUE}🔄 Performing update...${NC}"
-    
-    # Stop the service
-    echo -e "${BLUE}🛑 Stopping CanBridge service...${NC}"
-    systemctl stop $SERVICE_NAME
-    
-    # Backup current binary
-    echo -e "${BLUE}💾 Creating backup of current binary...${NC}"
-    cp "$INSTALL_DIR/DataService" "$INSTALL_DIR/DataService.backup.$(date +%Y%m%d-%H%M%S)"
-    
-    # Update binary and debug files
-    echo -e "${BLUE}📋 Updating CanBridge binary...${NC}"
-    cp linux-arm64/DataService $INSTALL_DIR/
-    cp linux-arm64/DataService.pdb $INSTALL_DIR/
-    
-    # Ensure proper ownership and permissions
-    chown $SERVICE_USER:$SERVICE_USER $INSTALL_DIR/DataService $INSTALL_DIR/DataService.pdb
-    chmod +x $INSTALL_DIR/DataService
-    
-    # Start the service
-    echo -e "${BLUE}🚀 Starting CanBridge service...${NC}"
-    systemctl start $SERVICE_NAME
-    
-    # Wait and check
-    sleep 3
-    if systemctl is-active --quiet $SERVICE_NAME; then
-        echo -e "${GREEN}✅ CanBridge updated and running successfully!${NC}"
+if $SKIP_CANBRIDGE; then
+    skip_msg "CanBridge installation (--skip-canbridge)"
+else
+    # Detect update vs fresh install
+    if systemctl list-unit-files 2>/dev/null | grep -q "^${SERVICE_NAME}.service" && [ -f "${INSTALL_DIR}/DataService" ]; then
+        OPERATION="UPDATE"
+        info "Existing installation detected — performing update"
     else
-        echo -e "${RED}❌ Service failed to start after update${NC}"
-        echo "Check logs: sudo journalctl -u $SERVICE_NAME -n 20"
+        OPERATION="INSTALL"
+        info "Fresh installation"
+    fi
+
+    # Resolve download URL
+    if [ "$HUB_ENV" = "prod" ]; then
+        DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/latest/download/canbridge-linux-arm64.tar.gz"
+    else
+        LATEST_TAG=$(curl -s "https://api.github.com/repos/${RELEASE_REPO}/releases" | grep '"tag_name"' | grep 'dev' | head -1 | sed -E 's/.*"v([^"]+)".*/v\1/')
+        DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/download/${LATEST_TAG}/canbridge-linux-arm64.tar.gz"
+    fi
+
+    # Service user
+    if ! id "$SERVICE_USER" &>/dev/null; then
+        useradd -r -s /bin/false -d $INSTALL_DIR $SERVICE_USER
+        usermod -a -G dialout,i2c $SERVICE_USER
+        ok "Created service user $SERVICE_USER"
+    else
+        usermod -a -G dialout,i2c $SERVICE_USER
+        ok "Service user $SERVICE_USER exists"
+    fi
+
+    # Directories
+    mkdir -p $INSTALL_DIR/data
+    chown $SERVICE_USER:$SERVICE_USER $INSTALL_DIR $INSTALL_DIR/data
+    chmod 755 $INSTALL_DIR/data
+
+    # Download
+    info "Downloading CanBridge release..."
+    cd /tmp
+    rm -f canbridge-linux-arm64.tar.gz
+    if ! curl -sL -o canbridge-linux-arm64.tar.gz "$DOWNLOAD_URL"; then
+        fail "Failed to download from $DOWNLOAD_URL"
         exit 1
     fi
-    
-else
-    # Fresh installation
-    echo -e "${BLUE}📋 Installing CanBridge...${NC}"
-    cp linux-arm64/* $INSTALL_DIR/
-    chown -R $SERVICE_USER:$SERVICE_USER $INSTALL_DIR
-    chmod +x $INSTALL_DIR/DataService
-    
-fi
 
-# Only create systemd service and setup for fresh installs
-if [ "$OPERATION" = "INSTALL" ]; then
-    
-# Create systemd service file
-echo -e "${BLUE}⚙️  Creating systemd service...${NC}"
-cat > /etc/systemd/system/$SERVICE_NAME.service << EOF
+    # Extract
+    tar -xzf canbridge-linux-arm64.tar.gz
+    if [ ! -f "linux-arm64/DataService" ]; then
+        fail "DataService binary not found in release"
+        exit 1
+    fi
+
+    if [ "$OPERATION" = "UPDATE" ]; then
+        systemctl stop $SERVICE_NAME
+        cp "$INSTALL_DIR/DataService" "$INSTALL_DIR/DataService.backup.$(date +%Y%m%d-%H%M%S)"
+        cp linux-arm64/DataService $INSTALL_DIR/
+        cp linux-arm64/DataService.pdb $INSTALL_DIR/ 2>/dev/null || true
+        chown $SERVICE_USER:$SERVICE_USER $INSTALL_DIR/DataService
+        chmod +x $INSTALL_DIR/DataService
+        systemctl start $SERVICE_NAME
+    else
+        cp linux-arm64/* $INSTALL_DIR/
+        chown -R $SERVICE_USER:$SERVICE_USER $INSTALL_DIR
+        chmod +x $INSTALL_DIR/DataService
+
+        # Systemd service
+        cat > /etc/systemd/system/$SERVICE_NAME.service << EOF
 [Unit]
 Description=CanBridge Data Service
 After=network.target
@@ -209,15 +199,12 @@ ExecStart=$INSTALL_DIR/DataService
 Restart=always
 RestartSec=10
 
-# Environment
 Environment=DOTNET_ENVIRONMENT=Production
 Environment=ASPNETCORE_URLS=http://0.0.0.0:5000
 
-# Capabilities for CAN interface configuration (native SocketCAN)
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_RAWIO
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_RAWIO
 
-# Security settings
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -228,9 +215,8 @@ ReadWritePaths=$INSTALL_DIR
 WantedBy=multi-user.target
 EOF
 
-# Set up logrotate for service logs
-echo -e "${BLUE}📝 Setting up log rotation...${NC}"
-cat > /etc/logrotate.d/canbridge << EOF
+        # Logrotate
+        cat > /etc/logrotate.d/canbridge << EOF
 /var/log/canbridge.log {
     daily
     missingok
@@ -241,201 +227,313 @@ cat > /etc/logrotate.d/canbridge << EOF
 }
 EOF
 
-# Reload systemd and enable service
-echo -e "${BLUE}🔄 Enabling service...${NC}"
-systemctl daemon-reload
-systemctl enable $SERVICE_NAME
+        systemctl daemon-reload
+        systemctl enable $SERVICE_NAME
 
-# Check for CAN device
-echo -e "${BLUE}🔍 Checking for CAN device...${NC}"
-CAN_DEVICE_FOUND=false
-for device in /dev/ttyACM0 /dev/ttyACM1 /dev/ttyACM2 /dev/ttyUSB0; do
-    if [ -e "$device" ]; then
-        echo -e "${GREEN}✅ Found CAN device: $device${NC}"
-        CAN_DEVICE_FOUND=true
-        # Ensure proper permissions
-        chown root:dialout $device
-        chmod 660 $device
+        # CAN device check
+        CAN_DEVICE_FOUND=false
+        for device in /dev/ttyACM0 /dev/ttyACM1 /dev/ttyACM2 /dev/ttyUSB0; do
+            if [ -e "$device" ]; then
+                ok "Found CAN device: $device"
+                CAN_DEVICE_FOUND=true
+                chown root:dialout "$device"
+                chmod 660 "$device"
+            fi
+        done
+        if [ "$CAN_DEVICE_FOUND" = false ]; then
+            info "${YELLOW}No CAN device found — connect interface and restart service${NC}"
+        fi
+
+        systemctl start $SERVICE_NAME || true
     fi
-done
 
-if [ "$CAN_DEVICE_FOUND" = false ]; then
-    echo -e "${YELLOW}⚠️  No CAN device found. Please connect your CAN interface and restart the service.${NC}"
+    # Verify
+    sleep 3
+    if systemctl is-active --quiet $SERVICE_NAME; then
+        ok "CanBridge running"
+    else
+        fail "CanBridge not running — check: journalctl -u $SERVICE_NAME"
+    fi
+
+    # Cleanup
+    cd /
+    rm -rf /tmp/linux-arm64 /tmp/canbridge-linux-arm64.tar.gz
 fi
 
-# Start the service
-echo -e "${BLUE}🚀 Starting CanBridge service...${NC}"
-if systemctl start $SERVICE_NAME; then
-    echo -e "${GREEN}✅ CanBridge service started successfully${NC}"
+# =========================================================================
+# Step 2: Install Docker
+# =========================================================================
+step "Install Docker"
+
+if command -v docker &>/dev/null; then
+    ok "Docker already installed: $(docker --version 2>/dev/null | head -1)"
 else
-    echo -e "${YELLOW}⚠️  Service start may have issues. Check status below.${NC}"
+    info "Installing Docker..."
+    apt-get update -qq
+    apt-get install -y -qq docker.io docker-compose-plugin > /dev/null
+    systemctl enable docker
+    systemctl start docker
+    ok "Docker installed"
 fi
 
-fi # End of install-only block
-
-# Show service status for both install and update
-echo -e "${BLUE}📊 Service Status:${NC}"
-systemctl status $SERVICE_NAME --no-pager -l
-
-# Cleanup
-cd /
-rm -rf /tmp/linux-arm64 /tmp/canbridge-linux-arm64.tar.gz
+if id -nG "$REAL_USER" | grep -qw docker; then
+    ok "$REAL_USER already in docker group"
+else
+    usermod -aG docker "$REAL_USER"
+    ok "Added $REAL_USER to docker group"
+fi
 
 # =========================================================================
-# Tailscale — remote access mesh
+# Step 3: Install Chromium (native deb)
 # =========================================================================
-echo ""
-echo -e "${BLUE}🔗 Tailscale Setup${NC}"
-echo -e "${BLUE}==================${NC}"
+step "Install Chromium"
 
-# Install Tailscale binary if not present
+if $SKIP_CHROMIUM; then
+    skip_msg "Chromium installation (--skip-chromium)"
+else
+    CHROMIUM_PATH=$(which chromium 2>/dev/null || echo "")
+    if [ -n "$CHROMIUM_PATH" ] && [[ "$CHROMIUM_PATH" != *"snap"* ]]; then
+        ok "Chromium already installed: $(chromium --version 2>/dev/null || echo 'unknown')"
+    else
+        # Remove snap chromium if present
+        if snap list chromium &>/dev/null 2>&1; then
+            info "Removing snap Chromium..."
+            pkill -f chromium 2>/dev/null || true
+            sleep 2
+            snap remove chromium
+        fi
+
+        # Remove transitional package
+        if dpkg -l 2>/dev/null | grep -q "^ii.*chromium-browser"; then
+            apt remove -y chromium-browser > /dev/null
+            apt autoremove -y > /dev/null
+        fi
+
+        # Install via XtraDeb PPA
+        info "Adding XtraDeb PPA and installing Chromium..."
+        add-apt-repository -y ppa:xtradeb/apps > /dev/null 2>&1
+        apt-get update -qq
+        apt-get install -y -qq chromium > /dev/null
+
+        if command -v chromium &>/dev/null; then
+            ok "Chromium installed: $(chromium --version 2>/dev/null || echo 'unknown')"
+        else
+            fail "Chromium installation failed"
+        fi
+    fi
+
+    # GPU-accelerated launchers
+    LAUNCHER_DIR="$REAL_HOME/.local/bin"
+    mkdir -p "$LAUNCHER_DIR"
+
+    if [ ! -f "$LAUNCHER_DIR/chromium-gpu" ]; then
+        cat > "$LAUNCHER_DIR/chromium-gpu" << 'LAUNCHER'
+#!/bin/bash
+export __EGL_VENDOR_LIBRARY_DIRS=/usr/lib/aarch64-linux-gnu/tegra-egl
+exec chromium --enable-gpu --ignore-gpu-blocklist --enable-gpu-rasterization "$@"
+LAUNCHER
+        chmod +x "$LAUNCHER_DIR/chromium-gpu"
+        ok "Created GPU launcher"
+    fi
+
+    if [ ! -f "$LAUNCHER_DIR/chromium-kiosk" ]; then
+        cat > "$LAUNCHER_DIR/chromium-kiosk" << 'LAUNCHER'
+#!/bin/bash
+export __EGL_VENDOR_LIBRARY_DIRS=/usr/lib/aarch64-linux-gnu/tegra-egl
+exec chromium --enable-gpu --ignore-gpu-blocklist --enable-gpu-rasterization --kiosk --disable-infobars --disable-session-crashed-bubble --disable-restore-session-state --disable-web-security --disable-features=VizDisplayCompositor "$@"
+LAUNCHER
+        chmod +x "$LAUNCHER_DIR/chromium-kiosk"
+        ok "Created kiosk launcher"
+    fi
+
+    chown -R "$REAL_USER:$REAL_USER" "$LAUNCHER_DIR"
+fi
+
+# =========================================================================
+# Step 4: Configure kiosk environment
+# =========================================================================
+step "Configure kiosk environment"
+
+if $SKIP_KIOSK; then
+    skip_msg "Kiosk environment (--skip-kiosk)"
+else
+    # HDMI audio blacklist
+    if [ ! -f /etc/modprobe.d/blacklist-hdmi-audio.conf ]; then
+        echo "blacklist snd_hda_tegra" > /etc/modprobe.d/blacklist-hdmi-audio.conf
+        ok "HDMI audio blacklisted"
+    else
+        ok "HDMI audio already blacklisted"
+    fi
+
+    # Waveshare wake service
+    if systemctl is-enabled waveshare-wake &>/dev/null 2>&1; then
+        ok "waveshare-wake service already installed"
+    else
+        cat > /etc/systemd/system/waveshare-wake.service << 'UNIT'
+[Unit]
+Description=Wake Waveshare touchscreen on resume
+After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c "echo 1-1 > /sys/bus/usb/drivers/usb/unbind; sleep 1; echo 1-1 > /sys/bus/usb/drivers/usb/bind"
+
+[Install]
+WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+UNIT
+        systemctl daemon-reload
+        systemctl enable waveshare-wake
+        ok "waveshare-wake service installed"
+    fi
+
+    # Kiosk autostart
+    AUTOSTART_DIR="$REAL_HOME/.config/autostart"
+    AUTOSTART_FILE="$AUTOSTART_DIR/node-kiosk.desktop"
+    if [ -f "$AUTOSTART_FILE" ]; then
+        ok "Kiosk autostart already configured"
+    else
+        mkdir -p "$AUTOSTART_DIR"
+        cat > "$AUTOSTART_FILE" << DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Node Kiosk
+Comment=Launch Node UI in Chromium kiosk mode
+Exec=$REAL_HOME/.local/bin/chromium-kiosk http://localhost:$NODE_PORT
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=5
+DESKTOP
+        chown -R "$REAL_USER:$REAL_USER" "$AUTOSTART_DIR"
+        ok "Kiosk autostart created"
+    fi
+fi
+
+# =========================================================================
+# Step 5: Install Tailscale
+# =========================================================================
+step "Install Tailscale"
+
 if command -v tailscale &>/dev/null; then
     TS_STATE=$(tailscale status --json 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("BackendState","unknown"))' 2>/dev/null || echo "unknown")
     if [ "$TS_STATE" = "Running" ]; then
         TS_IP=$(tailscale ip -4 2>/dev/null || echo "unknown")
-        echo -e "${GREEN}✅ Tailscale already running (IP: $TS_IP)${NC}"
+        ok "Tailscale already running (IP: $TS_IP)"
     else
-        echo -e "${GREEN}✅ Tailscale installed (not yet connected)${NC}"
+        ok "Tailscale installed (not yet connected)"
     fi
 else
-    echo -e "${BLUE}⬇️  Installing Tailscale...${NC}"
+    info "Installing Tailscale..."
     if curl -fsSL https://tailscale.com/install.sh | sh; then
-        echo -e "${GREEN}✅ Tailscale installed${NC}"
+        ok "Tailscale installed"
     else
-        echo -e "${RED}❌ Tailscale installation failed${NC}"
-        echo "  Install manually: https://tailscale.com/download/linux"
+        fail "Tailscale installation failed"
+        info "Install manually: https://tailscale.com/download/linux"
     fi
 fi
 
 # =========================================================================
-# Device Activation — register with Hub and join tailnet
+# Step 6: Device Activation
 # =========================================================================
-echo ""
-echo -e "${BLUE}🔑 Device Activation${NC}"
-echo -e "${BLUE}====================${NC}"
-echo "  Hub: $HUB_URL ($HUB_ENV)"
-echo ""
+step "Device Activation"
 
-# Generate a NodeInstanceId for this device
-NODE_INSTANCE_ID=$(python3 -c 'import uuid; print(uuid.uuid4())' 2>/dev/null || cat /proc/sys/kernel/random/uuid)
+# Require HTTPS
+if [[ "$HUB_URL" != https://* ]]; then
+    fail "Hub URL must use HTTPS (got: $HUB_URL)"
+    exit 1
+fi
 
-echo "  Device Instance ID: $NODE_INSTANCE_ID"
+# Generate NodeInstanceId
+NODE_INSTANCE_ID=$(cat /proc/sys/kernel/random/uuid)
+info "NodeInstanceId: $NODE_INSTANCE_ID"
+
 echo ""
 echo -e "${YELLOW}  Generate an activation code in Hub: $HUB_URL/DeviceActivation${NC}"
 echo ""
-read -rp "  Enter activation code (or 'skip' to skip): " ACTIVATION_CODE < /dev/tty
+read -rp "  Enter activation code: " ACTIVATION_CODE < /dev/tty
 
-if [ "$ACTIVATION_CODE" = "skip" ] || [ -z "$ACTIVATION_CODE" ]; then
-    echo -e "${YELLOW}⚠️  Skipping activation — device not registered with Hub${NC}"
-    echo "  Tailscale not connected. To activate later, re-run this script."
-else
-    # Normalize code to uppercase
-    ACTIVATION_CODE=$(echo "$ACTIVATION_CODE" | tr '[:lower:]' '[:upper:]' | tr -d ' ')
+if [ -z "$ACTIVATION_CODE" ]; then
+    fail "Activation code is required"
+    exit 1
+fi
 
-    echo -e "${BLUE}🔗 Activating with Hub...${NC}"
-    ACTIVATE_RESPONSE=$(curl -s -X POST "$HUB_URL/api/devices/activate" \
-        -H "Content-Type: application/json" \
-        -d "{\"nodeInstanceId\": \"$NODE_INSTANCE_ID\", \"activationCode\": \"$ACTIVATION_CODE\"}" 2>/dev/null || echo "")
+# Normalize
+ACTIVATION_CODE=$(echo "$ACTIVATION_CODE" | tr '[:lower:]' '[:upper:]' | tr -d ' ')
 
-    if [ -z "$ACTIVATE_RESPONSE" ]; then
-        echo -e "${RED}❌ Could not reach Hub at $HUB_URL${NC}"
-    else
-        ACTIVATE_SUCCESS=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("success",False))' 2>/dev/null || echo "False")
+info "Activating with $HUB_URL ..."
+TMPFILE=$(mktemp)
+trap 'rm -f "$TMPFILE"' EXIT
+HTTP_STATUS=$(curl -s -o "$TMPFILE" -w "%{http_code}" \
+    -X POST "$HUB_URL/api/devices/activate" \
+    -H "Content-Type: application/json" \
+    -d "{\"nodeInstanceId\": \"$NODE_INSTANCE_ID\", \"activationCode\": \"$ACTIVATION_CODE\"}" \
+    2>/dev/null) || HTTP_STATUS="000"
+BODY=$(cat "$TMPFILE")
 
-        if [ "$ACTIVATE_SUCCESS" = "True" ]; then
-            DEVICE_NAME=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; v=json.load(sys.stdin).get("deviceName"); print(v if v else "")' 2>/dev/null || echo "")
-            UNIT_ID=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; v=json.load(sys.stdin).get("unitId"); print(v if v else "")' 2>/dev/null || echo "")
-            REGISTRY_TOKEN=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; v=json.load(sys.stdin).get("registryToken"); print(v if v else "")' 2>/dev/null || echo "")
-            TS_AUTHKEY=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; v=json.load(sys.stdin).get("tailscaleAuthKey"); print(v if v else "")' 2>/dev/null || echo "")
-            TS_LOGIN_SERVER=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; v=json.load(sys.stdin).get("tailscaleLoginServer"); print(v if v else "")' 2>/dev/null || echo "")
+if [ "$HTTP_STATUS" = "000" ]; then
+    fail "Could not connect to $HUB_URL"
+    exit 1
+fi
 
-            echo -e "${GREEN}✅ Activated as $DEVICE_NAME (Unit: $UNIT_ID)${NC}"
+SUCCESS=$(echo "$BODY" | python3 -c "import sys,json; print(str(json.load(sys.stdin).get('success',False)).lower())" 2>/dev/null || echo "false")
 
-            # Docker login with registry token
-            if [ -n "$REGISTRY_TOKEN" ]; then
-                echo -e "${BLUE}🐳 Authenticating with container registry...${NC}"
-                if echo "$REGISTRY_TOKEN" | docker login ghcr.io -u netglass-io --password-stdin 2>/dev/null; then
-                    echo -e "${GREEN}✅ Docker authenticated with GHCR${NC}"
-                else
-                    echo -e "${YELLOW}⚠️  Docker login failed — may need manual auth${NC}"
-                fi
-            fi
+if [ "$SUCCESS" != "true" ]; then
+    ERROR_MSG=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('errorMessage','Unknown error'))" 2>/dev/null || echo "Activation failed (HTTP $HTTP_STATUS)")
+    fail "$ERROR_MSG"
+    exit 1
+fi
 
-            # Join tailnet
-            if [ -n "$TS_AUTHKEY" ] && command -v tailscale &>/dev/null; then
-                # Ensure tailscaled is running
-                systemctl start tailscaled 2>/dev/null
-                TS_HOSTNAME=$(hostname -s)
-                TS_ARGS="--authkey=$TS_AUTHKEY --hostname=$TS_HOSTNAME"
-                if [ -n "$TS_LOGIN_SERVER" ]; then
-                    TS_ARGS="$TS_ARGS --login-server=$TS_LOGIN_SERVER"
-                    echo -e "${BLUE}🔗 Joining tailnet as $TS_HOSTNAME (server: $TS_LOGIN_SERVER)...${NC}"
-                else
-                    echo -e "${BLUE}🔗 Joining tailnet as $TS_HOSTNAME...${NC}"
-                fi
-                if tailscale up $TS_ARGS; then
-                    sleep 3
-                    TS_IP=$(tailscale ip -4 2>/dev/null || echo "unknown")
-                    echo -e "${GREEN}✅ Joined tailnet (IP: $TS_IP)${NC}"
-                    # Enable Tailscale SSH server for remote access
-                    tailscale set --ssh --accept-risk=lose-ssh 2>/dev/null
-                    echo -e "${GREEN}✅ Tailscale SSH enabled${NC}"
-                else
-                    echo -e "${RED}❌ Failed to join tailnet${NC}"
-                fi
-            elif [ -z "$TS_AUTHKEY" ]; then
-                echo -e "${YELLOW}⚠️  No Tailscale auth key in Hub — configure in Device Activation > Tailscale${NC}"
-            fi
-        else
-            ERROR_MSG=$(echo "$ACTIVATE_RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("errorMessage","Unknown error"))' 2>/dev/null || echo "Unknown error")
-            echo -e "${RED}❌ Activation failed: $ERROR_MSG${NC}"
-        fi
+# Extract activation data
+TRUCK_KEY=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['truckKey'])")
+UNIT_ID=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['unitId'])")
+DEVICE_NAME=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['deviceName'])")
+REGISTRY_TOKEN=$(echo "$BODY" | python3 -c "import sys,json; v=json.load(sys.stdin).get('registryToken',''); print(v if v else '')")
+TS_AUTHKEY=$(echo "$BODY" | python3 -c "import sys,json; v=json.load(sys.stdin).get('tailscaleAuthKey',''); print(v if v else '')")
+TS_LOGIN_SERVER=$(echo "$BODY" | python3 -c "import sys,json; v=json.load(sys.stdin).get('tailscaleLoginServer',''); print(v if v else '')")
+
+ok "Activated as $DEVICE_NAME (Unit: $UNIT_ID)"
+
+# =========================================================================
+# Step 7: Fetch and run setup script from Hub
+# =========================================================================
+step "Run setup"
+
+if [ -z "$REGISTRY_TOKEN" ]; then
+    fail "No registry token returned — cannot fetch setup script"
+    fail "Configure GHCR PAT in Hub: $HUB_URL/DeviceActivation"
+    exit 1
+fi
+
+info "Downloading setup script from Hub..."
+SETUP_TMPFILE=$(mktemp)
+trap 'rm -f "$TMPFILE" "$SETUP_TMPFILE"' EXIT
+
+SETUP_HTTP_STATUS=$(curl -s -o "$SETUP_TMPFILE" -w "%{http_code}" \
+    -H "Authorization: Bearer $REGISTRY_TOKEN" \
+    "$HUB_URL/api/devices/setup" 2>/dev/null) || SETUP_HTTP_STATUS="000"
+
+if [ "$SETUP_HTTP_STATUS" != "200" ]; then
+    fail "Failed to download setup script (HTTP $SETUP_HTTP_STATUS)"
+    if [ "$SETUP_HTTP_STATUS" = "404" ]; then
+        fail "Setup script not configured in Hub — add it via $HUB_URL/DeviceActivation"
     fi
+    exit 1
 fi
 
-echo ""
-if [ "$OPERATION" = "UPDATE" ]; then
-    echo -e "${GREEN}🎉 CanBridge Update Complete!${NC}"
-else
-    echo -e "${GREEN}🎉 Installation Complete!${NC}"
-fi
-echo ""
-echo -e "${BLUE}📋 Management Commands:${NC}"
-echo "  Start service:    sudo systemctl start $SERVICE_NAME"
-echo "  Stop service:     sudo systemctl stop $SERVICE_NAME"
-echo "  Restart service:  sudo systemctl restart $SERVICE_NAME"
-echo "  Check status:     sudo systemctl status $SERVICE_NAME"
-echo "  View logs:        sudo journalctl -u $SERVICE_NAME -f"
-echo ""
-echo -e "${BLUE}🌐 Service Details:${NC}"
-echo "  Installation:     $INSTALL_DIR"
-echo "  Service User:     $SERVICE_USER"
-echo "  Web Interface:    http://localhost:5000"
-echo ""
-echo -e "${BLUE}🔗 Tailscale:${NC}"
-TS_IP=$(tailscale ip -4 2>/dev/null || echo "not connected")
-echo "  Tailscale IP:     $TS_IP"
-echo "  Status:           sudo tailscale status"
-echo "  SSH via tailnet:  ssh nodemin@$TS_IP"
-echo ""
-echo -e "${BLUE}🔧 Troubleshooting:${NC}"
-echo "  • Ensure CAN device is connected"
-echo "  • Check that user '$SERVICE_USER' is in 'dialout' and 'i2c' groups"
-echo "  • Verify network connectivity for SignalR broadcasting"
-echo ""
+ok "Setup script downloaded"
 
-# Final service check
-sleep 2
-if systemctl is-active --quiet $SERVICE_NAME; then
-    echo -e "${GREEN}✅ CanBridge is running successfully!${NC}"
-else
-    echo -e "${YELLOW}⚠️  CanBridge may not be running. Check logs:${NC}"
-    echo "    sudo journalctl -u $SERVICE_NAME --no-pager -n 20"
-fi
+# Pass activation data as environment variables (avoids secrets in ps output)
+export NOBLE_TRUCK_KEY="$TRUCK_KEY"
+export NOBLE_UNIT_ID="$UNIT_ID"
+export NOBLE_DEVICE_NAME="$DEVICE_NAME"
+export NOBLE_HUB_URL="$HUB_URL"
+export NOBLE_HUB_ENV="$HUB_ENV"
+export NOBLE_REGISTRY_TOKEN="$REGISTRY_TOKEN"
+export NOBLE_TS_AUTHKEY="$TS_AUTHKEY"
+export NOBLE_TS_LOGIN_SERVER="$TS_LOGIN_SERVER"
+export NOBLE_REAL_USER="$REAL_USER"
+export NOBLE_REAL_HOME="$REAL_HOME"
+export NOBLE_NODE_PORT="$NODE_PORT"
+export NOBLE_SKIP_CANBRIDGE="$SKIP_CANBRIDGE"
+export NOBLE_SKIP_CHROMIUM="$SKIP_CHROMIUM"
+export NOBLE_SKIP_KIOSK="$SKIP_KIOSK"
 
-echo ""
-echo -e "${BLUE}📋 Need Help?${NC}"
-echo "  • Report bugs or issues: https://github.com/netglass-io/NobleOne-Releases/issues/new/choose"
-echo "  • View existing issues: https://github.com/netglass-io/NobleOne-Releases/issues"
-echo "  • Installation support: Use the 'Installation Support' template"
-echo ""
+bash "$SETUP_TMPFILE"
