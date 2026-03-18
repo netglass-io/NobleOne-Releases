@@ -453,7 +453,8 @@ PULSEEOF
     sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REAL_USER")/bus" \
         gsettings set org.gnome.desktop.a11y.applications screen-keyboard-enabled false 2>/dev/null && \
         ok "GNOME on-screen keyboard disabled" || info "Could not set OSK preference (will apply after login)"
-    IBUS_PKGS=$(dpkg -l 2>/dev/null | grep -E "^ii.*(ibus|onboard)" | awk '{print $2}')
+    # Remove IBus input framework and onboard keyboard (match exact package name prefixes)
+    IBUS_PKGS=$(dpkg -l 2>/dev/null | awk '/^ii  (ibus|onboard)/ {print $2}')
     if [ -n "$IBUS_PKGS" ]; then
         info "Removing IBus and onboard keyboard..."
         echo "$IBUS_PKGS" | xargs apt-get purge -y -qq 2>/dev/null
