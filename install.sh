@@ -405,14 +405,19 @@ UNIT
         gsettings set org.gnome.desktop.screensaver lock-enabled false 2>/dev/null && \
         ok "Screen lock disabled" || info "Could not set screen lock (will apply after login)"
 
-    # Disable GNOME Keyring prompt (auto-login doesn't unlock it via PAM)
+    # Create GNOME login keyring with empty password (auto-login skips PAM unlock)
     KEYRING_DIR="$REAL_HOME/.local/share/keyrings"
+    mkdir -p "$KEYRING_DIR"
     if [ -f "$KEYRING_DIR/login.keyring" ]; then
         rm -f "$KEYRING_DIR/login.keyring"
-        ok "Login keyring reset (will recreate unlocked on next login)"
-    else
-        ok "Login keyring already clean"
     fi
+    # Initialize keyring with empty password via gnome-keyring-daemon
+    eval "$(printf '\n' | sudo -u "$REAL_USER" gnome-keyring-daemon --replace --unlock --components=secrets 2>/dev/null)" && \
+        ok "Login keyring created with empty password" || \
+        info "Could not create keyring (will prompt once on first login)"
+    # Kill the daemon we just spawned — it was only needed to create the file
+    pkill -u "$REAL_USER" gnome-keyring-daemon 2>/dev/null || true
+    chown -R "$REAL_USER:$REAL_USER" "$KEYRING_DIR"
 
     # Remove update nag packages
     if dpkg -l 2>/dev/null | grep -qE "^ii.*(update-notifier|gnome-software) "; then
