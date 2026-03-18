@@ -230,18 +230,16 @@ EOF
         systemctl daemon-reload
         systemctl enable $SERVICE_NAME
 
-        # CAN device check
-        CAN_DEVICE_FOUND=false
-        for device in /dev/ttyACM0 /dev/ttyACM1 /dev/ttyACM2 /dev/ttyUSB0; do
-            if [ -e "$device" ]; then
-                ok "Found CAN device: $device"
-                CAN_DEVICE_FOUND=true
-                chown root:dialout "$device"
-                chmod 660 "$device"
-            fi
-        done
-        if [ "$CAN_DEVICE_FOUND" = false ]; then
-            info "${YELLOW}No CAN device found — connect interface and restart service${NC}"
+        # CAN interface check (native SocketCAN via Jetson mttcan controller)
+        # The Jetson's built-in CAN controller uses pins 29/31 with an external
+        # transceiver (e.g. TJA1051T/3). CanBridge handles pinmux and mttcan
+        # module loading at runtime — we just check if the hardware is available.
+        if [ -d /sys/class/net/can0 ]; then
+            ok "Native CAN interface (can0) available"
+        elif lsmod 2>/dev/null | grep -q mttcan; then
+            ok "mttcan module loaded (can0 will be configured by CanBridge)"
+        else
+            info "${YELLOW}CAN interface not detected — CanBridge will attempt to configure at startup${NC}"
         fi
 
         systemctl start $SERVICE_NAME || true
