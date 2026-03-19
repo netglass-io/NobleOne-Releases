@@ -15,6 +15,11 @@
 
 set -euo pipefail
 
+# --- Logging ---
+LOG_FILE="/var/log/nobleone-install.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+log_ts() { echo "[$(date '+%Y-%m-%d %H:%M:%S')]"; }
+
 # --- Configuration ---
 HUB_PREPROD="https://preprod-hub.netglass.io"
 HUB_PROD="https://prod-hub.netglass.io"
@@ -37,7 +42,8 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 step_count=0
-step()     { step_count=$((step_count + 1)); echo ""; echo -e "${BLUE}${BOLD}[$step_count] $1${NC}"; }
+current_step=""
+step()     { step_count=$((step_count + 1)); current_step="$1"; echo ""; echo -e "$(log_ts) ${BLUE}${BOLD}[$step_count] $1${NC}"; }
 ok()       { echo -e "  ${GREEN}✓${NC} $1"; }
 fail()     { echo -e "  ${RED}✗${NC} $1"; }
 info()     { echo -e "  $1"; }
@@ -85,6 +91,32 @@ if [ "$EUID" -ne 0 ]; then
     fail "This script must be run as root (use sudo)"
     exit 1
 fi
+
+# Exit trap — log final status and clean up temp files
+TMPFILE=""
+SETUP_TMPFILE=""
+cleanup() {
+    local exit_code=$?
+    rm -f "$TMPFILE" "$SETUP_TMPFILE"
+    echo ""
+    if [ $exit_code -eq 0 ]; then
+        echo -e "$(log_ts) ${GREEN}${BOLD}Install completed successfully${NC}"
+    else
+        echo -e "$(log_ts) ${RED}${BOLD}Install FAILED (exit code $exit_code) during: ${current_step:-pre-flight}${NC}"
+    fi
+    echo -e "$(log_ts) Log saved to $LOG_FILE"
+}
+trap cleanup EXIT
+
+# System snapshot
+echo -e "$(log_ts) ${BOLD}System Info${NC}"
+echo "  Kernel:    $(uname -r)"
+echo "  Disk free: $(df -h / | awk 'NR==2 {print $4}')"
+echo "  Memory:    $(free -h | awk '/Mem:/ {print $2}') total, $(free -h | awk '/Mem:/ {print $7}') available"
+if [ -f /etc/nv_tegra_release ]; then
+    echo "  JetPack:   $(cat /etc/nv_tegra_release | head -1)"
+fi
+echo ""
 
 # Architecture check
 ARCH=$(uname -m)
@@ -549,7 +581,6 @@ ACTIVATION_CODE=$(echo "$ACTIVATION_CODE" | tr '[:lower:]' '[:upper:]' | tr -d '
 
 info "Activating with $HUB_URL ..."
 TMPFILE=$(mktemp)
-trap 'rm -f "$TMPFILE"' EXIT
 HTTP_STATUS=$(curl -s -o "$TMPFILE" -w "%{http_code}" \
     -X POST "$HUB_URL/api/devices/activate" \
     -H "Content-Type: application/json" \
@@ -593,7 +624,6 @@ fi
 
 info "Downloading setup script from Hub..."
 SETUP_TMPFILE=$(mktemp)
-trap 'rm -f "$TMPFILE" "$SETUP_TMPFILE"' EXIT
 
 SETUP_HTTP_STATUS=$(curl -s -o "$SETUP_TMPFILE" -w "%{http_code}" \
     -H "Authorization: Bearer $REGISTRY_TOKEN" \
