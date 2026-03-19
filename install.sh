@@ -489,8 +489,9 @@ PULSEEOF
     IBUS_PKGS=$(dpkg -l 2>/dev/null | awk '/^ii  (ibus|onboard)/ {print $2}')
     if [ -n "$IBUS_PKGS" ]; then
         info "Removing IBus and onboard keyboard..."
-        echo "$IBUS_PKGS" | xargs apt-get purge -y -qq 2>/dev/null
-        apt-get autoremove -y -qq 2>/dev/null
+        # shellcheck disable=SC2086
+        apt-get purge -y $IBUS_PKGS || true
+        apt-get autoremove -y -qq || true
         pkill -u "$REAL_USER" ibus 2>/dev/null || true
         ok "Removed IBus and onboard keyboard"
     else
