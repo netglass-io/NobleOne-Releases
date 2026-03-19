@@ -611,6 +611,15 @@ TS_LOGIN_SERVER=$(echo "$BODY" | python3 -c "import sys,json; v=json.load(sys.st
 
 ok "Activated as $DEVICE_NAME (Unit: $UNIT_ID)"
 
+# Set hostname to Hub device name (lowercase, sanitized)
+DEVICE_HOSTNAME=$(echo "$DEVICE_NAME" | tr '[:upper:]' '[:lower:]' | tr -c '[:alnum:]-' '-' | sed 's/^-//;s/-$//')
+if [ -n "$DEVICE_HOSTNAME" ] && [ "$(hostname -s)" != "$DEVICE_HOSTNAME" ]; then
+    hostnamectl set-hostname "$DEVICE_HOSTNAME"
+    ok "Hostname set to $DEVICE_HOSTNAME"
+else
+    ok "Hostname already $DEVICE_HOSTNAME"
+fi
+
 # =========================================================================
 # Step 7: Fetch and run setup script from Hub
 # =========================================================================
