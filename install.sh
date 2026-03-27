@@ -370,7 +370,7 @@ LAUNCHER
         cat > "$LAUNCHER_DIR/chromium-kiosk" << 'LAUNCHER'
 #!/bin/bash
 export __EGL_VENDOR_LIBRARY_DIRS=/usr/lib/aarch64-linux-gnu/tegra-egl
-exec chromium --enable-gpu --ignore-gpu-blocklist --enable-gpu-rasterization --kiosk --disable-infobars --disable-session-crashed-bubble --disable-restore-session-state --disable-web-security --disable-features=VizDisplayCompositor --password-store=basic "$@"
+exec chromium --enable-gpu --ignore-gpu-blocklist --enable-gpu-rasterization --kiosk --disable-infobars --disable-session-crashed-bubble --disable-restore-session-state --disable-web-security --disable-features=VizDisplayCompositor --password-store=basic --autoplay-policy=no-user-gesture-required "$@"
 LAUNCHER
         chmod +x "$LAUNCHER_DIR/chromium-kiosk"
         ok "Created kiosk launcher"
