@@ -445,29 +445,44 @@ UNIT
     fi
 
     # Remove update nag packages
-    if dpkg -l 2>/dev/null | grep -qE "^ii.*(update-notifier|gnome-software) "; then
-        info "Removing update notifier and GNOME Software..."
-        apt-get remove -y -qq update-notifier gnome-software 2>/dev/null
+    if dpkg -l 2>/dev/null | grep -qE "^ii.*(update-notifier|update-manager|gnome-software) "; then
+        info "Removing update notifier, update manager, and GNOME Software..."
+        apt-get remove -y -qq update-notifier update-manager gnome-software 2>/dev/null
         apt-get autoremove -y -qq 2>/dev/null
         ok "Update notifications removed"
     else
         ok "No update nag packages found"
     fi
 
-    # Set eMeet USB speakerphone as default audio sink
-    PULSE_DIR="$REAL_HOME/.config/pulse"
+    # Set eMeet USB speakerphone as default audio sink via udev rule
+    # PulseAudio's module-switch-on-connect doesn't trigger for devices already
+    # present at boot, so we use a udev rule to reliably set the default sink
+    # whenever the eMeet USB audio device appears (boot or hot-plug).
+    cat > /usr/local/bin/set-emeet-default.sh << 'EMEETEOF'
+#!/bin/bash
+# Wait for PulseAudio to be ready and the sink to register
+sleep 3
+DISPLAY_USER=$(who | grep '(:0)' | awk '{print $1}' | head -1)
+[ -z "$DISPLAY_USER" ] && DISPLAY_USER=$(who | awk '{print $1}' | head -1)
+[ -z "$DISPLAY_USER" ] && exit 0
+EMEET_SINK=$(sudo -u "$DISPLAY_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$DISPLAY_USER")" pactl list sinks short 2>/dev/null | grep EMEET | awk '{print $2}')
+[ -z "$EMEET_SINK" ] && exit 0
+sudo -u "$DISPLAY_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$DISPLAY_USER")" pactl set-default-sink "$EMEET_SINK" 2>/dev/null
+EMEETEOF
+    chmod +x /usr/local/bin/set-emeet-default.sh
+
+    cat > /etc/udev/rules.d/99-emeet-audio.rules << 'UDEVEOF'
+ACTION=="add", SUBSYSTEM=="sound", ATTRS{idVendor}=="328f", ATTRS{idProduct}=="007d", RUN+="/bin/bash -c '/usr/local/bin/set-emeet-default.sh &'"
+UDEVEOF
+    udevadm control --reload-rules 2>/dev/null || true
+
+    # Also set it now if available
     if sudo -u "$REAL_USER" pactl list sinks short 2>/dev/null | grep -q "EMEET"; then
         EMEET_SINK=$(sudo -u "$REAL_USER" pactl list sinks short 2>/dev/null | grep EMEET | awk '{print $2}')
-        mkdir -p "$PULSE_DIR"
-        cat > "$PULSE_DIR/default.pa" << PULSEEOF
-.include /etc/pulse/default.pa
-set-default-sink $EMEET_SINK
-PULSEEOF
-        chown -R "$REAL_USER:$REAL_USER" "$PULSE_DIR"
         sudo -u "$REAL_USER" pactl set-default-sink "$EMEET_SINK" 2>/dev/null || true
-        ok "eMeet USB audio set as default sink"
+        ok "eMeet USB audio set as default sink (udev rule + immediate)"
     else
-        info "eMeet not detected — skipping audio config"
+        ok "eMeet udev rule installed (device not currently detected)"
     fi
 
     # Suppress Jetson overcurrent/power mode desktop notifications
