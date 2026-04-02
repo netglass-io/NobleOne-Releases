@@ -454,6 +454,15 @@ UNIT
         ok "No update nag packages found"
     fi
 
+    # Disable automatic apt updates and unattended-upgrades
+    # The UI packages above only suppress the desktop notification — the underlying
+    # services still run, trigger dpkg locks, and can pop system dialogs on reboot.
+    info "Disabling automatic apt updates and unattended-upgrades..."
+    systemctl stop apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null
+    systemctl disable apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null
+    systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null
+    ok "Automatic updates disabled"
+
     # Set eMeet USB speakerphone as default audio sink via udev rule
     # PulseAudio's module-switch-on-connect doesn't trigger for devices already
     # present at boot, so we use a udev rule to reliably set the default sink
