@@ -181,6 +181,13 @@ else
         ok "Service user $SERVICE_USER exists"
     fi
 
+    # Sudoers for CanBridge (WiFi management, power control)
+    cat > /etc/sudoers.d/canbridge << SUDOEOF
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli, /usr/sbin/reboot, /usr/sbin/shutdown
+SUDOEOF
+    chmod 440 /etc/sudoers.d/canbridge
+    ok "Sudoers configured for $SERVICE_USER"
+
     # Directories
     mkdir -p $INSTALL_DIR/data
     chown $SERVICE_USER:$SERVICE_USER $INSTALL_DIR $INSTALL_DIR/data
