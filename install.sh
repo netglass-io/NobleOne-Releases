@@ -454,8 +454,8 @@ UNIT
     # Remove update nag packages
     if dpkg -l 2>/dev/null | grep -qE "^ii.*(update-notifier|update-manager|gnome-software) "; then
         info "Removing update notifier, update manager, and GNOME Software..."
-        apt-get remove -y -qq update-notifier update-manager gnome-software 2>/dev/null
-        apt-get autoremove -y -qq 2>/dev/null
+        apt-get remove -y -qq update-notifier update-manager gnome-software 2>/dev/null || true
+        apt-get autoremove -y -qq 2>/dev/null || true
         ok "Update notifications removed"
     else
         ok "No update nag packages found"
