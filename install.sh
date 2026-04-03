@@ -443,8 +443,8 @@ UNIT
     # Remove update nag packages
     if dpkg -l 2>/dev/null | grep -qE "^ii.*(update-notifier|update-manager|gnome-software) "; then
         info "Removing update notifier, update manager, and GNOME Software..."
-        apt-get remove -y -qq update-notifier update-manager gnome-software 2>/dev/null
-        apt-get autoremove -y -qq 2>/dev/null
+        apt-get remove -y -qq update-notifier update-manager gnome-software 2>/dev/null || true
+        apt-get autoremove -y -qq 2>/dev/null || true
         ok "Update notifications removed"
     else
         ok "No update nag packages found"
@@ -454,9 +454,9 @@ UNIT
     # The UI packages above only suppress the desktop notification — the underlying
     # services still run, trigger dpkg locks, and can pop system dialogs on reboot.
     info "Disabling automatic apt updates and unattended-upgrades..."
-    systemctl stop apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null
-    systemctl disable apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null
-    systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null
+    systemctl stop apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null || true
+    systemctl disable apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null || true
+    systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null || true
     ok "Automatic updates disabled"
 
     # Set eMeet USB speakerphone as default audio sink via udev rule
@@ -465,14 +465,31 @@ UNIT
     # whenever the eMeet USB audio device appears (boot or hot-plug).
     cat > /usr/local/bin/set-emeet-default.sh << 'EMEETEOF'
 #!/bin/bash
-# Wait for PulseAudio to be ready and the sink to register
-sleep 3
+# Retry setting eMeet as default sink (PulseAudio may not be ready at boot)
+LOG="/tmp/emeet-debug.log"
+echo "$(date): eMeet udev trigger fired" > "$LOG"
+
 DISPLAY_USER=$(who | grep '(:0)' | awk '{print $1}' | head -1)
 [ -z "$DISPLAY_USER" ] && DISPLAY_USER=$(who | awk '{print $1}' | head -1)
-[ -z "$DISPLAY_USER" ] && exit 0
-EMEET_SINK=$(sudo -u "$DISPLAY_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$DISPLAY_USER")" pactl list sinks short 2>/dev/null | grep EMEET | awk '{print $2}')
-[ -z "$EMEET_SINK" ] && exit 0
-sudo -u "$DISPLAY_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$DISPLAY_USER")" pactl set-default-sink "$EMEET_SINK" 2>/dev/null
+if [ -z "$DISPLAY_USER" ]; then
+    echo "$(date): No display user found, exiting" >> "$LOG"
+    exit 0
+fi
+echo "$(date): Display user: $DISPLAY_USER" >> "$LOG"
+
+XDG="XDG_RUNTIME_DIR=/run/user/$(id -u "$DISPLAY_USER")"
+
+for i in $(seq 1 10); do
+    EMEET_SINK=$(sudo -u "$DISPLAY_USER" $XDG pactl list sinks short 2>/dev/null | grep EMEET | awk '{print $2}')
+    if [ -n "$EMEET_SINK" ]; then
+        sudo -u "$DISPLAY_USER" $XDG pactl set-default-sink "$EMEET_SINK" 2>/dev/null
+        echo "$(date): Set default sink to $EMEET_SINK (attempt $i)" >> "$LOG"
+        exit 0
+    fi
+    echo "$(date): eMeet sink not found, retry $i/10" >> "$LOG"
+    sleep 3
+done
+echo "$(date): Failed to find eMeet sink after 10 attempts" >> "$LOG"
 EMEETEOF
     chmod +x /usr/local/bin/set-emeet-default.sh
 
