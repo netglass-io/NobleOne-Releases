@@ -229,16 +229,11 @@ Environment=DOTNET_ENVIRONMENT=Production
 Environment=ASPNETCORE_URLS=http://0.0.0.0:5000
 
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_RAWIO
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_RAWIO CAP_SETUID CAP_SETGID CAP_DAC_READ_SEARCH
-
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=$INSTALL_DIR
 
 [Install]
 WantedBy=multi-user.target
 EOF
+    systemctl daemon-reload
 
     if [ "$OPERATION" = "UPDATE" ]; then
         systemctl stop $SERVICE_NAME
@@ -276,7 +271,6 @@ EOF
         fi
     fi
 
-    systemctl daemon-reload
     systemctl start $SERVICE_NAME || true
 
     # Verify
