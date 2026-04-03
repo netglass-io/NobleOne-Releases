@@ -6,12 +6,14 @@ AI-powered forklift fleet management system with real-time CAN bus integration, 
 
 For **Nvidia Jetson** (Nano, AGX Orin, Thor):
 
+**Preprod** (default):
 ```bash
-# Preprod (default) — fetches Tailscale config from preprod Hub:
 curl -fsSL -H "Accept: application/vnd.github.v3.raw" \
   "https://api.github.com/repos/netglass-io/NobleOne-Releases/contents/install.sh" | sudo bash
+```
 
-# Production:
+**Production**:
+```bash
 curl -fsSL -H "Accept: application/vnd.github.v3.raw" \
   "https://api.github.com/repos/netglass-io/NobleOne-Releases/contents/install.sh" | sudo bash -s -- --env prod
 ```
