@@ -388,6 +388,13 @@ step "Configure kiosk environment"
 if $SKIP_KIOSK; then
     skip_msg "Kiosk environment (--skip-kiosk)"
 else
+    # Clean up stale Chromium lock files (hostname changes between installs cause stale locks)
+    CHROMIUM_LOCK="$REAL_HOME/.config/chromium/SingletonLock"
+    if [ -e "$CHROMIUM_LOCK" ]; then
+        rm -f "$CHROMIUM_LOCK"
+        ok "Removed stale Chromium lock file"
+    fi
+
     # HDMI audio blacklist
     if [ ! -f /etc/modprobe.d/blacklist-hdmi-audio.conf ]; then
         echo "blacklist snd_hda_tegra" > /etc/modprobe.d/blacklist-hdmi-audio.conf
