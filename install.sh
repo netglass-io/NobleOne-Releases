@@ -21,8 +21,8 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 log_ts() { echo "[$(date '+%Y-%m-%d %H:%M:%S')]"; }
 
 # --- Configuration ---
-HUB_PREPROD="https://preprod-n1.nobleliftna.com"
-HUB_PROD="https://n1.nobleliftna.com"
+HUB_PREPROD="https://preprod-hub.netglass.io"
+HUB_PROD="https://prod-hub.netglass.io"
 INSTALL_DIR="/opt/canbridge"
 SERVICE_NAME="canbridge"
 SERVICE_USER="canbridge"
