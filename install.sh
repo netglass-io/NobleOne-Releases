@@ -174,11 +174,19 @@ else
     # Service user
     if ! id "$SERVICE_USER" &>/dev/null; then
         useradd -r -s /bin/false -d $INSTALL_DIR $SERVICE_USER
-        usermod -a -G dialout,i2c $SERVICE_USER
+        usermod -a -G dialout,i2c,kmem $SERVICE_USER
         ok "Created service user $SERVICE_USER"
     else
-        usermod -a -G dialout,i2c $SERVICE_USER
+        usermod -a -G dialout,i2c,kmem $SERVICE_USER
         ok "Service user $SERVICE_USER exists"
+    fi
+
+    # Allow kmem group to write /dev/mem (needed for CAN pinmux via devmem)
+    if [ -e /dev/mem ]; then
+        chmod g+w /dev/mem
+        # Persist across reboots via udev rule
+        echo 'KERNEL=="mem", GROUP="kmem", MODE="0660"' > /etc/udev/rules.d/99-devmem-canbridge.rules
+        ok "Configured /dev/mem write access for kmem group"
     fi
 
     # Sudoers for CanBridge (WiFi management, power control)
