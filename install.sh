@@ -362,15 +362,20 @@ LAUNCHER
         ok "Created GPU launcher"
     fi
 
-    if [ ! -f "$LAUNCHER_DIR/chromium-kiosk" ]; then
-        cat > "$LAUNCHER_DIR/chromium-kiosk" << 'LAUNCHER'
+    cat > "$LAUNCHER_DIR/chromium-kiosk" << 'LAUNCHER'
 #!/bin/bash
+# Set eMeet USB speakerphone as default audio if present
+# Runs after desktop session is up so PulseAudio is guaranteed ready
+EMEET_SINK=$(pactl list sinks short 2>/dev/null | grep EMEET | awk '{print $2}')
+if [ -n "$EMEET_SINK" ]; then
+    pactl set-default-sink "$EMEET_SINK" 2>/dev/null
+fi
+
 export __EGL_VENDOR_LIBRARY_DIRS=/usr/lib/aarch64-linux-gnu/tegra-egl
 exec chromium --enable-gpu --ignore-gpu-blocklist --enable-gpu-rasterization --kiosk --disable-infobars --disable-session-crashed-bubble --disable-restore-session-state --disable-web-security --disable-features=VizDisplayCompositor --password-store=basic --autoplay-policy=no-user-gesture-required "$@"
 LAUNCHER
-        chmod +x "$LAUNCHER_DIR/chromium-kiosk"
-        ok "Created kiosk launcher"
-    fi
+    chmod +x "$LAUNCHER_DIR/chromium-kiosk"
+    ok "Created kiosk launcher"
 
     chown -R "$REAL_USER:$REAL_USER" "$LAUNCHER_DIR"
 fi
