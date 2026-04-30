@@ -272,7 +272,7 @@ EOF
         # CAN interface check (native SocketCAN via Jetson mttcan controller)
         if [ -d /sys/class/net/can0 ]; then
             ok "Native CAN interface (can0) available"
-        elif lsmod 2>/dev/null | grep -q mttcan; then
+        elif [ -d /sys/module/mttcan ]; then
             ok "mttcan module loaded (can0 will be configured by CanBridge)"
         else
             info "${YELLOW}CAN interface not detected — CanBridge will attempt to configure at startup${NC}"
@@ -310,7 +310,8 @@ else
     ok "Docker installed"
 fi
 
-if id -nG "$REAL_USER" | grep -qw docker; then
+USER_GROUPS=" $(id -nG "$REAL_USER" 2>/dev/null) "
+if [[ "$USER_GROUPS" == *" docker "* ]]; then
     ok "$REAL_USER already in docker group"
 else
     usermod -aG docker "$REAL_USER"
@@ -338,7 +339,7 @@ else
         fi
 
         # Remove transitional package
-        if dpkg -l 2>/dev/null | grep -q "^ii.*chromium-browser"; then
+        if [ "$(dpkg-query -W -f='${Status}' chromium-browser 2>/dev/null)" = "install ok installed" ]; then
             apt remove -y chromium-browser > /dev/null
             apt autoremove -y > /dev/null
         fi
@@ -461,9 +462,18 @@ UNIT
     fi
 
     # Remove update nag packages
-    if dpkg -l 2>/dev/null | grep -qE "^ii.*(update-notifier|update-manager|gnome-software) "; then
-        info "Removing update notifier, update manager, and GNOME Software..."
-        apt-get remove -y -qq update-notifier update-manager gnome-software 2>/dev/null || true
+    # Use dpkg-query per-package: `dpkg -l | grep -q ...` is unreliable under
+    # `set -o pipefail` because grep -q exits early on first match, sending
+    # SIGPIPE to dpkg, which fails the pipeline and skips the removal branch.
+    NAG_INSTALLED=""
+    for pkg in update-notifier update-manager gnome-software; do
+        if [ "$(dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null)" = "install ok installed" ]; then
+            NAG_INSTALLED="$NAG_INSTALLED $pkg"
+        fi
+    done
+    if [ -n "$NAG_INSTALLED" ]; then
+        info "Removing update nag packages:$NAG_INSTALLED"
+        apt-get remove -y -qq $NAG_INSTALLED 2>/dev/null || true
         apt-get autoremove -y -qq 2>/dev/null || true
         ok "Update notifications removed"
     else
@@ -519,8 +529,9 @@ UDEVEOF
     udevadm control --reload-rules 2>/dev/null || true
 
     # Also set it now if available
-    if sudo -u "$REAL_USER" pactl list sinks short 2>/dev/null | grep -q "EMEET"; then
-        EMEET_SINK=$(sudo -u "$REAL_USER" pactl list sinks short 2>/dev/null | grep EMEET | awk '{print $2}')
+    PACTL_SINKS=$(sudo -u "$REAL_USER" pactl list sinks short 2>/dev/null || true)
+    EMEET_SINK=$(echo "$PACTL_SINKS" | awk '/EMEET/ {print $2; exit}')
+    if [ -n "$EMEET_SINK" ]; then
         sudo -u "$REAL_USER" pactl set-default-sink "$EMEET_SINK" 2>/dev/null || true
         ok "eMeet USB audio set as default sink (udev rule + immediate)"
     else
