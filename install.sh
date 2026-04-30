@@ -461,9 +461,18 @@ UNIT
     fi
 
     # Remove update nag packages
-    if dpkg -l 2>/dev/null | grep -qE "^ii.*(update-notifier|update-manager|gnome-software) "; then
-        info "Removing update notifier, update manager, and GNOME Software..."
-        apt-get remove -y -qq update-notifier update-manager gnome-software 2>/dev/null || true
+    # Use dpkg-query per-package: `dpkg -l | grep -q ...` is unreliable under
+    # `set -o pipefail` because grep -q exits early on first match, sending
+    # SIGPIPE to dpkg, which fails the pipeline and skips the removal branch.
+    NAG_INSTALLED=""
+    for pkg in update-notifier update-manager gnome-software; do
+        if [ "$(dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null)" = "install ok installed" ]; then
+            NAG_INSTALLED="$NAG_INSTALLED $pkg"
+        fi
+    done
+    if [ -n "$NAG_INSTALLED" ]; then
+        info "Removing update nag packages:$NAG_INSTALLED"
+        apt-get remove -y -qq $NAG_INSTALLED 2>/dev/null || true
         apt-get autoremove -y -qq 2>/dev/null || true
         ok "Update notifications removed"
     else
