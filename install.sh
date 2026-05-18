@@ -218,6 +218,13 @@ SUDOEOF
     fi
 
     # Systemd service (always written so updates pick up config changes)
+    #
+    # Note: this unit is intentionally unsandboxed — no NoNewPrivileges,
+    # CapabilityBoundingSet, ProtectSystem, or ProtectHome. CanBridge invokes
+    # sudo for nmcli (WiFi), reboot, and shutdown via /etc/sudoers.d/canbridge,
+    # which the standard systemd hardening directives block. Don't add them
+    # back without first re-routing those operations through a different
+    # mechanism (e.g. polkit or a privileged helper).
     cat > /etc/systemd/system/$SERVICE_NAME.service << EOF
 [Unit]
 Description=CanBridge Data Service
